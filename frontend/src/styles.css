@@ -1,0 +1,23 @@
+:root {
+  --bg-color: #f3f4f8;
+  --panel-color: #ffffff;
+  --border-color: #d8dde8;
+  --primary-color: #1f6feb;
+  --text-color: #1f2937;
+  --muted-color: #6b7280;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text-color);
+  background: radial-gradient(circle at top, #eef5ff 0%, var(--bg-color) 48%, #e8ebf2 100%);
+}
