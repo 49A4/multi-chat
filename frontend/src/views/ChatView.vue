@@ -610,13 +610,28 @@ function renderStreamingText(text) {
   return `<div class="stream-plain">${escaped.replace(/\n/g, "<br>")}</div>`;
 }
 
+function renderStreamingMarkdown(text) {
+  if (!text) {
+    return renderStreamingText("");
+  }
+  try {
+    const rendered = renderMarkdownWithCollapsibleThinking(text);
+    if (rendered && rendered.trim()) {
+      return rendered;
+    }
+  } catch {
+    // Fallback to escaped plain text when markdown cannot be incrementally parsed.
+  }
+  return renderStreamingText(text);
+}
+
 function buildRenderedContent(item) {
   if (item.error) {
     const renderedError = renderMarkdownWithCollapsibleThinking(`**Error:** ${item.error}`);
     return renderedError || renderMarkdownPreservingMath("**Error:** 未知错误");
   }
   if (!item.done) {
-    return renderStreamingText(item.content);
+    return renderStreamingMarkdown(item.content);
   }
   if (!item.content) {
     return renderMarkdownWithCollapsibleThinking("_模型未返回文本，请检查 API/模型配置_");
@@ -790,7 +805,7 @@ function createModelState(model, index = 0) {
     title: parsedTag.title || modelKey,
     content: "",
     pendingDelta: "",
-    renderedHtml: renderStreamingText(""),
+    renderedHtml: renderStreamingMarkdown(""),
     done: false,
     error: ""
   };
@@ -1347,7 +1362,7 @@ async function regenerateModel(model) {
   item.pendingDelta = "";
   item.error = "";
   item.done = false;
-  item.renderedHtml = renderStreamingText("");
+  item.renderedHtml = renderStreamingMarkdown("");
   retryingMap[model] = true;
   acceptIncomingEvents.value = true;
   saveChatUiState();
