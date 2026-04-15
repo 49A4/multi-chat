@@ -51,7 +51,7 @@
       type="button"
       @mouseenter="openSidebar"
       @click="toggleSidebar"
-      :title="sidebarVisible ? '收起侧边栏' : '展开侧边栏'"
+      :title="sidebarPinned ? '侧边栏已固定' : (sidebarVisible ? '收起侧边栏' : '展开侧边栏')"
     >
       {{ sidebarVisible ? "›" : "‹" }}
     </button>
@@ -64,7 +64,19 @@
     >
       <div class="sidebar-head">
         <h3>模型侧栏</h3>
-        <el-button text @click="sidebarVisible = false">收起</el-button>
+        <div class="sidebar-head-actions">
+          <el-button
+            text
+            size="small"
+            class="pin-icon-btn"
+            :class="{ active: sidebarPinned }"
+            :title="sidebarPinned ? '取消固定侧边栏' : '固定侧边栏'"
+            @click="toggleSidebarPinned"
+          >
+            固定
+          </el-button>
+          <el-button text size="small" @click="sidebarVisible = false">收起</el-button>
+        </div>
       </div>
       <div class="sidebar-actions">
         <el-button size="small" @click="loadConfigs">刷新模型</el-button>
@@ -90,7 +102,7 @@
       class="input-peek"
       :class="{ open: !inputCollapsed, 'with-sidebar': sidebarVisible }"
       type="button"
-      :title="inputCollapsed ? '展开输入栏' : '收起输入栏'"
+      :title="inputPinned ? '输入栏已固定' : (inputCollapsed ? '展开输入栏' : '收起输入栏')"
       @mouseenter="openInputPanel"
       @click="toggleInputPanel"
     >
@@ -112,6 +124,16 @@
           @keydown="onPromptKeydown"
         />
         <div class="actions">
+          <el-button
+            text
+            size="small"
+            class="pin-icon-btn pin-btn"
+            :class="{ active: inputPinned }"
+            :title="inputPinned ? '取消固定输入栏' : '固定输入栏'"
+            @click="toggleInputPinned"
+          >
+            固定
+          </el-button>
           <el-button @click="resetLayout">重置布局</el-button>
           <el-button @click="clear">清空输出</el-button>
           <el-button type="primary" :loading="loading" @click="send">发送 (Enter)</el-button>
@@ -141,6 +163,8 @@ const sidebarVisible = ref(false);
 const apiConfigs = ref([]);
 const lastSentPrompt = ref("");
 const inputCollapsed = ref(false);
+const sidebarPinned = ref(false);
+const inputPinned = ref(false);
 
 const stateMap = reactive({});
 const retryingMap = reactive({});
@@ -676,6 +700,8 @@ function saveChatUiState() {
   const payload = {
     prompt: prompt.value || "",
     lastSentPrompt: lastSentPrompt.value || "",
+    sidebarPinned: Boolean(sidebarPinned.value),
+    inputPinned: Boolean(inputPinned.value),
     canvasOffset: {
       x: Number.isFinite(canvasOffset.x) ? canvasOffset.x : 0,
       y: Number.isFinite(canvasOffset.y) ? canvasOffset.y : 0
@@ -703,6 +729,14 @@ function restoreChatUiState() {
 
     prompt.value = typeof parsed.prompt === "string" ? parsed.prompt : "";
     lastSentPrompt.value = typeof parsed.lastSentPrompt === "string" ? parsed.lastSentPrompt : "";
+    sidebarPinned.value = Boolean(parsed.sidebarPinned);
+    inputPinned.value = Boolean(parsed.inputPinned);
+    if (inputPinned.value) {
+      inputCollapsed.value = false;
+    }
+    if (sidebarPinned.value) {
+      sidebarVisible.value = true;
+    }
 
     const savedOffset = parsed.canvasOffset || {};
     canvasOffset.x = Number.isFinite(savedOffset.x) ? savedOffset.x : 0;
@@ -1169,9 +1203,14 @@ function openInputPanel() {
 function toggleInputPanel() {
   clearInputPanelCloseTimer();
   inputCollapsed.value = !inputCollapsed.value;
+  saveChatUiState();
 }
 
 function onInputPanelLeave() {
+  if (inputPinned.value) {
+    clearInputPanelCloseTimer();
+    return;
+  }
   clearInputPanelCloseTimer();
   inputPanelCloseTimer = setTimeout(() => {
     inputCollapsed.value = true;
@@ -1187,6 +1226,7 @@ function openSidebar() {
 function toggleSidebar() {
   clearSidebarCloseTimer();
   sidebarVisible.value = !sidebarVisible.value;
+  saveChatUiState();
 }
 
 function onSidebarEnter() {
@@ -1194,6 +1234,10 @@ function onSidebarEnter() {
 }
 
 function onSidebarLeave() {
+  if (sidebarPinned.value) {
+    clearSidebarCloseTimer();
+    return;
+  }
   if (sidebarCloseTimer) {
     return;
   }
@@ -1204,7 +1248,7 @@ function onSidebarLeave() {
 }
 
 function onWindowMouseMoveForSidebar(event) {
-  if (!sidebarVisible.value) {
+  if (!sidebarVisible.value || sidebarPinned.value) {
     return;
   }
 
@@ -1225,6 +1269,24 @@ function onWindowMouseMoveForSidebar(event) {
   }
 
   onSidebarLeave();
+}
+
+function toggleSidebarPinned() {
+  sidebarPinned.value = !sidebarPinned.value;
+  if (sidebarPinned.value) {
+    clearSidebarCloseTimer();
+    sidebarVisible.value = true;
+  }
+  saveChatUiState();
+}
+
+function toggleInputPinned() {
+  inputPinned.value = !inputPinned.value;
+  if (inputPinned.value) {
+    clearInputPanelCloseTimer();
+    inputCollapsed.value = false;
+  }
+  saveChatUiState();
 }
 
 function clearModelStates() {
@@ -1648,6 +1710,19 @@ watch(
   gap: 10px;
 }
 
+.pin-btn {
+  margin-right: auto;
+}
+
+.pin-icon-btn {
+  padding: 4px;
+  min-width: 28px;
+}
+
+.pin-icon-btn.active {
+  color: #2563eb;
+}
+
 .flow-board {
   flex: 1;
   min-height: 0;
@@ -1731,6 +1806,12 @@ watch(
 .sidebar-head h3 {
   margin: 0;
   font-size: 18px;
+}
+
+.sidebar-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sidebar-actions {
@@ -1994,3 +2075,5 @@ watch(
   display: inline;
 }
 </style>
+
+
