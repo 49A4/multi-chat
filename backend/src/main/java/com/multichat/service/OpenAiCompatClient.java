@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
@@ -24,7 +25,7 @@ import reactor.core.publisher.Flux;
 @RequiredArgsConstructor
 public class OpenAiCompatClient {
 
-    private static final Duration REQUEST_IDLE_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration REQUEST_IDLE_TIMEOUT = Duration.ofSeconds(180);
     private static final ParameterizedTypeReference<ServerSentEvent<String>> SSE_STRING_TYPE =
         new ParameterizedTypeReference<>() { };
 
@@ -73,6 +74,12 @@ public class OpenAiCompatClient {
                     .flatMapMany(body -> Flux.error(buildHttpException(response.statusCode().value(), body)));
             })
             .timeout(REQUEST_IDLE_TIMEOUT)
+            .onErrorMap(TimeoutException.class, ex ->
+                new RuntimeException(
+                    "Model stream timed out after 180s without new tokens. " +
+                    "Try reducing maxTokens or disabling long reasoning output."
+                )
+            )
             .doOnError(ex -> log.warn("Model stream failed for {}: {}", config.getName(), ex.getMessage()));
     }
 
@@ -152,18 +159,35 @@ public class OpenAiCompatClient {
             for (JsonNode node : contentNode) {
                 if (node.isTextual()) {
                     parts.add(node.asText());
-                } else if (node.has("text") && node.get("text").isTextual()) {
+                } else if (node.has("text") && node.get("text").isTextual() && !isReasoningNode(node)) {
                     parts.add(node.get("text").asText());
-                } else if (node.has("content") && node.get("content").isTextual()) {
+                } else if (node.has("content") && node.get("content").isTextual() && !isReasoningNode(node)) {
                     parts.add(node.get("content").asText());
                 }
             }
             return;
         }
 
-        if (contentNode.isObject() && contentNode.has("text") && contentNode.get("text").isTextual()) {
+        if (
+            contentNode.isObject() &&
+            contentNode.has("text") &&
+            contentNode.get("text").isTextual() &&
+            !isReasoningNode(contentNode)
+        ) {
             parts.add(contentNode.get("text").asText());
         }
+    }
+
+    private boolean isReasoningNode(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return false;
+        }
+        String type = node.path("type").asText("");
+        if (type == null || type.isBlank()) {
+            return false;
+        }
+        String normalized = type.toLowerCase();
+        return normalized.contains("reasoning") || normalized.contains("thinking") || normalized.contains("thought");
     }
 
     private String normalizeBaseUrl(String baseUrl) {

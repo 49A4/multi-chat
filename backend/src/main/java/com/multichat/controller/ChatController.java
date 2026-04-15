@@ -22,7 +22,12 @@ public class ChatController {
 
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<SseEvent>> stream(@Valid @RequestBody ChatRequest request) {
-        return chatService.streamChat(request.getSessionId(), request.getPrompt())
+        return chatService.streamChat(
+                request.getSessionId(),
+                request.getPrompt(),
+                request.getTargetModels(),
+                request.getAppendUserMessage()
+            )
             .map(event -> ServerSentEvent.<SseEvent>builder()
                 .event("message")
                 .data(event)
