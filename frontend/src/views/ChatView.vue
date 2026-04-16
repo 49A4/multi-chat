@@ -6,15 +6,47 @@
           ref="flowCanvasRef"
           :class="['flow-canvas', { dragging: dragState.active || panState.active }]"
           :style="flowCanvasStyle"
+          title="Shift+空白拖拽创建总结块，普通空白拖拽平移画布"
           @pointerdown="onCanvasPointerDown"
           @wheel="onCanvasWheel"
         >
           <div class="flow-layer" :style="flowLayerStyle">
+            <svg
+              v-if="showQuestionNode && questionConnections.length > 0 && !dragState.active"
+              class="flow-links"
+            >
+              <path
+                v-for="conn in questionConnections"
+                :key="conn.key"
+                class="flow-link"
+                :d="conn.path"
+              />
+            </svg>
+
+            <section
+              v-if="showQuestionNode"
+              class="question-node question-drag-handle"
+              :style="questionNodeStyle"
+              @pointerdown="onQuestionPointerDown"
+            >
+              <div class="question-chip">我的问题</div>
+              <div class="question-text">{{ questionNode.text }}</div>
+              <div class="question-meta">{{ questionNode.timeText }}</div>
+            </section>
+
             <el-card
               v-for="item in modelList"
               :key="item.model"
+              :data-model="item.model"
               shadow="never"
-              :class="['result-card', 'flow-node', { dragging: dragState.active && dragState.model === item.model }]"
+              :class="[
+                'result-card',
+                'flow-node',
+                {
+                  dragging: dragState.active && dragState.model === item.model,
+                  'drag-source-hidden': dragState.active && dragState.model === item.model
+                }
+              ]"
               :style="nodeStyle(item)"
             >
               <template #header>
@@ -39,6 +71,69 @@
               </template>
               <div class="content markdown-body" v-html="item.renderedHtml"></div>
             </el-card>
+
+            <section
+              v-if="dragGhost.active"
+              ref="dragGhostRef"
+              class="drag-ghost"
+              :style="dragGhostStyle"
+            >
+              <div class="drag-ghost-title">{{ dragGhost.title }}</div>
+            </section>
+
+            <section
+              v-for="block in summaryBlocks"
+              :key="block.id"
+              class="summary-block"
+              :style="summaryBlockStyle(block)"
+            >
+              <header class="summary-block-head">
+                <strong>总结块</strong>
+                <span>{{ block.selectedModels.length }} 个回答</span>
+              </header>
+              <el-input
+                v-model="block.instruction"
+                type="textarea"
+                :rows="2"
+                resize="none"
+                placeholder="例如：总结这些回答，提炼一致结论和差异点"
+              />
+              <div class="summary-block-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="block.loading"
+                  @click="runSummaryBlock(block)"
+                >
+                  执行总结
+                </el-button>
+                <el-button size="small" @click="refreshSummarySelection(block)">
+                  刷新范围
+                </el-button>
+                <el-button size="small" text type="danger" @click="removeSummaryBlock(block.id)">
+                  删除
+                </el-button>
+              </div>
+              <div class="summary-selected-list">
+                <el-tag
+                  v-for="key in block.selectedModels"
+                  :key="`${block.id}-${key}`"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ stateMap[key]?.title || key }}
+                </el-tag>
+                <span v-if="block.selectedModels.length === 0" class="summary-empty-tip">未命中回答卡片</span>
+              </div>
+              <div v-if="block.error" class="summary-error">{{ block.error }}</div>
+              <div v-else class="content markdown-body summary-content" v-html="block.renderedHtml"></div>
+            </section>
+
+            <div
+              v-if="summaryCreateState.active"
+              class="summary-draft"
+              :style="summaryDraftStyle"
+            ></div>
           </div>
         </div>
       </section>
@@ -179,7 +274,13 @@ let mathTypesetTimer = null;
 let sidebarCloseTimer = null;
 let inputPanelCloseTimer = null;
 let activeDragEl = null;
+let dragRafId = 0;
+let dragLatestClientX = 0;
+let dragLatestClientY = 0;
+let dragRenderX = 0;
+let dragRenderY = 0;
 const flowCanvasRef = ref(null);
+const dragGhostRef = ref(null);
 const sidebarPanelRef = ref(null);
 const sidebarPeekRef = ref(null);
 const FLOW_LAYOUT_STORAGE_KEY = "multi-chat-flow-layout-v1";
@@ -187,21 +288,58 @@ const CHAT_UI_STORAGE_KEY = "multi-chat-ui-state-v1";
 let flowTopZ = 1;
 const flowLayoutCache = ref({});
 const nodeLayoutMap = reactive({});
+const questionNode = reactive({
+  text: "",
+  timeText: "",
+  x: 360,
+  y: 24,
+  width: 520,
+  height: 104
+});
 
 const dragState = reactive({
   active: false,
-  model: "",
+  model: ""
+});
+const dragMeta = {
   pointerId: null,
   startX: 0,
   startY: 0,
   originX: 0,
   originY: 0,
-  pendingX: 0,
-  pendingY: 0,
-  rafId: 0
+  width: 340,
+  height: 230
+};
+const dragGhost = reactive({
+  active: false,
+  title: "",
+  x: 0,
+  y: 0,
+  width: 340,
+  height: 230
 });
 
 const panState = reactive({
+  active: false,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  originX: 0,
+  originY: 0
+});
+
+const summaryBlocks = ref([]);
+const summaryCreateState = reactive({
+  active: false,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  currentX: 0,
+  currentY: 0
+});
+const summaryControllers = new Map();
+let summaryBlockSeq = 1;
+const questionDragState = reactive({
   active: false,
   pointerId: null,
   startX: 0,
@@ -223,7 +361,56 @@ const flowLayerStyle = computed(() => ({
   transform: `translate3d(${Math.round(canvasOffset.x)}px, ${Math.round(canvasOffset.y)}px, 0)`
 }));
 
+const summaryDraftStyle = computed(() => {
+  const rect = normalizeRect(
+    summaryCreateState.startX,
+    summaryCreateState.startY,
+    summaryCreateState.currentX,
+    summaryCreateState.currentY
+  );
+  return {
+    transform: `translate3d(${Math.round(rect.x)}px, ${Math.round(rect.y)}px, 0)`,
+    width: `${Math.round(rect.width)}px`,
+    height: `${Math.round(rect.height)}px`
+  };
+});
+
+const dragGhostStyle = computed(() => ({
+  transform: `translate3d(${Math.round(dragGhost.x)}px, ${Math.round(dragGhost.y)}px, 0)`,
+  width: `${Math.round(dragGhost.width)}px`,
+  minHeight: `${Math.max(72, Math.round(dragGhost.height))}px`
+}));
+
 const modelList = computed(() => Object.values(stateMap));
+const showQuestionNode = computed(() => Boolean((questionNode.text || "").trim()));
+const questionNodeStyle = computed(() => ({
+  transform: `translate3d(${Math.round(questionNode.x)}px, ${Math.round(questionNode.y)}px, 0)`,
+  width: `${Math.round(questionNode.width)}px`,
+  minHeight: `${Math.round(questionNode.height)}px`
+}));
+const questionConnections = computed(() => {
+  if (!showQuestionNode.value) {
+    return [];
+  }
+  const startX = questionNode.x + questionNode.width / 2;
+  const startY = questionNode.y + questionNode.height;
+  return modelList.value
+    .map((item) => {
+      const layout = nodeLayoutMap[item.model];
+      if (!layout) {
+        return null;
+      }
+      const escapedModel = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(item.model) : item.model.replace(/"/g, '\\"');
+      const cardEl = flowCanvasRef.value?.querySelector?.(`.flow-node[data-model="${escapedModel}"]`);
+      const cardWidth = cardEl?.offsetWidth || 340;
+      const endX = layout.x + cardWidth / 2;
+      const endY = layout.y;
+      const ctrlY = Math.round((startY + endY) / 2);
+      const path = `M ${Math.round(startX)} ${Math.round(startY)} C ${Math.round(startX)} ${ctrlY}, ${Math.round(endX)} ${ctrlY}, ${Math.round(endX)} ${Math.round(endY)}`;
+      return { key: item.model, path };
+    })
+    .filter(Boolean);
+});
 
 const markdown = new MarkdownIt({
   html: true,
@@ -729,6 +916,7 @@ function restoreChatUiState() {
 
     prompt.value = typeof parsed.prompt === "string" ? parsed.prompt : "";
     lastSentPrompt.value = typeof parsed.lastSentPrompt === "string" ? parsed.lastSentPrompt : "";
+    setQuestionNodeContent(lastSentPrompt.value);
     sidebarPinned.value = Boolean(parsed.sidebarPinned);
     inputPinned.value = Boolean(parsed.inputPinned);
     if (inputPinned.value) {
@@ -804,8 +992,22 @@ function getDefaultPosition(index) {
   const row = Math.floor(safeIndex / 3);
   return {
     x: 20 + col * 360,
-    y: 20 + row * 260
+    y: 220 + row * 280
   };
+}
+
+function setQuestionNodeContent(text) {
+  questionNode.text = (text || "").trim();
+  if (!questionNode.text) {
+    questionNode.timeText = "";
+    return;
+  }
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  questionNode.timeText = `${mm}-${dd} ${hh}:${min}`;
 }
 
 function pickInitialPosition(model, index) {
@@ -859,11 +1061,251 @@ function nodeStyle(item) {
   };
 }
 
+function summaryBlockStyle(block) {
+  return {
+    transform: `translate3d(${Math.round(block.x)}px, ${Math.round(block.y)}px, 0)`,
+    width: `${Math.round(block.width)}px`,
+    minHeight: `${Math.round(block.height)}px`,
+    zIndex: 999
+  };
+}
+
+function normalizeRect(x1, y1, x2, y2) {
+  const x = Math.min(x1, x2);
+  const y = Math.min(y1, y2);
+  const width = Math.abs(x2 - x1);
+  const height = Math.abs(y2 - y1);
+  return { x, y, width, height };
+}
+
+function clientToLayerPoint(clientX, clientY) {
+  const canvas = flowCanvasRef.value;
+  if (!canvas) {
+    return { x: 0, y: 0 };
+  }
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: clientX - rect.left - canvasOffset.x,
+    y: clientY - rect.top - canvasOffset.y
+  };
+}
+
+function intersectsRect(a, b) {
+  return !(
+    a.x + a.width < b.x ||
+    b.x + b.width < a.x ||
+    a.y + a.height < b.y ||
+    b.y + b.height < a.y
+  );
+}
+
+function getModelCardBounds(model) {
+  const layout = nodeLayoutMap[model];
+  if (!layout) {
+    return null;
+  }
+  const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(model) : model.replace(/"/g, '\\"');
+  const cardEl = flowCanvasRef.value?.querySelector?.(`.flow-node[data-model="${escaped}"]`);
+  return {
+    x: layout.x,
+    y: layout.y,
+    width: cardEl?.offsetWidth || 340,
+    height: cardEl?.offsetHeight || 260
+  };
+}
+
+function collectModelsInRect(rect) {
+  return modelList.value
+    .map((item) => item.model)
+    .filter((model) => {
+      const bounds = getModelCardBounds(model);
+      if (!bounds) {
+        return false;
+      }
+      return intersectsRect(rect, bounds);
+    });
+}
+
+function refreshSummarySelection(block) {
+  const rect = { x: block.x, y: block.y, width: block.width, height: block.height };
+  block.selectedModels = collectModelsInRect(rect);
+}
+
+function removeSummaryBlock(blockId) {
+  const existing = summaryControllers.get(blockId);
+  if (existing) {
+    existing.abort();
+    summaryControllers.delete(blockId);
+  }
+  summaryBlocks.value = summaryBlocks.value.filter((item) => item.id !== blockId);
+}
+
+function startSummaryDraft(event) {
+  const point = clientToLayerPoint(event.clientX, event.clientY);
+  summaryCreateState.active = true;
+  summaryCreateState.pointerId = event.pointerId;
+  summaryCreateState.startX = point.x;
+  summaryCreateState.startY = point.y;
+  summaryCreateState.currentX = point.x;
+  summaryCreateState.currentY = point.y;
+}
+
+function stopSummaryDraft() {
+  if (!summaryCreateState.active) {
+    return;
+  }
+  const rect = normalizeRect(
+    summaryCreateState.startX,
+    summaryCreateState.startY,
+    summaryCreateState.currentX,
+    summaryCreateState.currentY
+  );
+
+  summaryCreateState.active = false;
+  summaryCreateState.pointerId = null;
+
+  if (rect.width < 32 || rect.height < 32) {
+    return;
+  }
+
+  const selectedModels = collectModelsInRect(rect);
+  summaryBlocks.value.push({
+    id: `summary-${summaryBlockSeq++}`,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    selectedModels,
+    instruction: "总结这些回答",
+    content: "",
+    renderedHtml: renderMarkdownPreservingMath("_等待总结输出..._"),
+    loading: false,
+    error: ""
+  });
+}
+
+async function runSummaryBlock(block) {
+  if (!block || block.loading) {
+    return;
+  }
+
+  refreshSummarySelection(block);
+  if (!block.selectedModels.length) {
+    ElMessage.warning("总结块内没有命中的回答卡片");
+    return;
+  }
+
+  const enabled = apiConfigs.value.filter((cfg) => cfg.enabled);
+  if (!enabled.length) {
+    ElMessage.warning("请先配置并启用至少一个 API");
+    return;
+  }
+
+  const instruction = (block.instruction || "").trim() || "总结这些回答";
+  const sections = block.selectedModels
+    .map((modelKey) => {
+      const item = stateMap[modelKey];
+      if (!item || !item.content) {
+        return "";
+      }
+      return `### ${item.title || item.model}\n${item.content}`;
+    })
+    .filter(Boolean);
+
+  if (!sections.length) {
+    ElMessage.warning("命中卡片暂无可用文本");
+    return;
+  }
+
+  const payloadPrompt = `${instruction}
+
+请仅基于以下回答进行处理：
+
+${sections.join("\n\n---\n\n")}`;
+
+  const targetModel = buildModelTagFromConfig(enabled[0]);
+  let tempSessionId = "";
+  const previousCtrl = summaryControllers.get(block.id);
+  if (previousCtrl) {
+    previousCtrl.abort();
+  }
+  const summaryCtrl = new AbortController();
+  summaryControllers.set(block.id, summaryCtrl);
+  block.loading = true;
+  block.error = "";
+  block.content = "";
+  block.renderedHtml = renderMarkdownPreservingMath("_总结中..._");
+
+  try {
+    const tempSession = await createSession(`Summary-${block.id}`);
+    tempSessionId = tempSession.id;
+    await sendPromptStream(
+      tempSessionId,
+      payloadPrompt,
+      (event) => {
+        const eventModel = parseModelTag(event?.model || "").key;
+        if (eventModel && eventModel !== parseModelTag(targetModel).key) {
+          return;
+        }
+        if (event.delta) {
+          block.content += event.delta;
+          block.renderedHtml = renderStreamingMarkdown(block.content);
+        }
+        if (event.error) {
+          block.error = event.error;
+        }
+      },
+      summaryCtrl.signal,
+      {
+        targetModels: [targetModel],
+        appendUserMessage: true
+      }
+    );
+    if (!block.error) {
+      block.renderedHtml = renderMarkdownWithCollapsibleThinking(block.content || "_模型未返回文本_");
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      block.error = error?.message || "总结失败";
+    }
+  } finally {
+    if (tempSessionId) {
+      try {
+        await deleteSession(tempSessionId);
+      } catch {
+        // Ignore temporary summary session cleanup failures.
+      }
+    }
+    block.loading = false;
+    if (block.error) {
+      block.renderedHtml = renderMarkdownPreservingMath(`**Error:** ${block.error}`);
+    }
+    summaryControllers.delete(block.id);
+  }
+}
+
 function bringToFront(layout) {
   if (!layout) {
     return;
   }
   layout.z = ++flowTopZ;
+}
+
+function onQuestionPointerDown(event) {
+  if (event.button !== 0) {
+    return;
+  }
+  questionDragState.active = true;
+  questionDragState.pointerId = event.pointerId;
+  questionDragState.startX = event.clientX;
+  questionDragState.startY = event.clientY;
+  questionDragState.originX = questionNode.x;
+  questionDragState.originY = questionNode.y;
+  if (event.currentTarget?.setPointerCapture) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  event.stopPropagation();
+  event.preventDefault();
 }
 
 function onNodePointerDown(event, model) {
@@ -879,17 +1321,31 @@ function onNodePointerDown(event, model) {
   bringToFront(layout);
   dragState.active = true;
   dragState.model = model;
-  dragState.pointerId = event.pointerId;
+  dragMeta.pointerId = event.pointerId;
   activeDragEl = event.currentTarget?.closest?.(".flow-node") || null;
-  dragState.startX = event.clientX;
-  dragState.startY = event.clientY;
-  dragState.originX = layout.x;
-  dragState.originY = layout.y;
-  dragState.pendingX = layout.x;
-  dragState.pendingY = layout.y;
-  if (activeDragEl) {
-    activeDragEl.style.willChange = "transform";
-  }
+  dragMeta.startX = event.clientX;
+  dragMeta.startY = event.clientY;
+  dragMeta.originX = layout.x;
+  dragMeta.originY = layout.y;
+  dragMeta.width = activeDragEl?.offsetWidth || 340;
+  dragMeta.height = activeDragEl?.offsetHeight || 230;
+  dragLatestClientX = event.clientX;
+  dragLatestClientY = event.clientY;
+  dragRenderX = layout.x;
+  dragRenderY = layout.y;
+  dragGhost.active = true;
+  dragGhost.title = stateMap[model]?.title || model;
+  dragGhost.x = layout.x;
+  dragGhost.y = layout.y;
+  dragGhost.width = dragMeta.width;
+  dragGhost.height = dragMeta.height;
+  nextTick(() => {
+    const ghostEl = dragGhostRef.value;
+    if (ghostEl) {
+      ghostEl.style.willChange = "transform";
+      ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
+    }
+  });
   if (event.currentTarget?.setPointerCapture) {
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -898,21 +1354,25 @@ function onNodePointerDown(event, model) {
 }
 
 function onCanvasPointerDown(event) {
-  if (event.button !== 0 || dragState.active) {
+  if (event.button !== 0 || dragState.active || summaryCreateState.active || questionDragState.active) {
     return;
   }
 
   const target = event.target;
-  if (target instanceof Element && target.closest(".flow-node")) {
+  if (target instanceof Element && target.closest(".flow-node, .summary-block, .question-node")) {
     return;
   }
 
-  panState.active = true;
-  panState.pointerId = event.pointerId;
-  panState.startX = event.clientX;
-  panState.startY = event.clientY;
-  panState.originX = canvasOffset.x;
-  panState.originY = canvasOffset.y;
+  if (event.shiftKey) {
+    startSummaryDraft(event);
+  } else {
+    panState.active = true;
+    panState.pointerId = event.pointerId;
+    panState.startX = event.clientX;
+    panState.startY = event.clientY;
+    panState.originX = canvasOffset.x;
+    panState.originY = canvasOffset.y;
+  }
   if (event.currentTarget?.setPointerCapture) {
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -963,11 +1423,32 @@ function onWindowPointerMove(event) {
     return;
   }
 
+  if (summaryCreateState.active) {
+    if (summaryCreateState.pointerId != null && event.pointerId !== summaryCreateState.pointerId) {
+      return;
+    }
+    const point = clientToLayerPoint(event.clientX, event.clientY);
+    summaryCreateState.currentX = point.x;
+    summaryCreateState.currentY = point.y;
+    event.preventDefault();
+    return;
+  }
+
+  if (questionDragState.active) {
+    if (questionDragState.pointerId != null && event.pointerId !== questionDragState.pointerId) {
+      return;
+    }
+    questionNode.x = Math.round(questionDragState.originX + (event.clientX - questionDragState.startX));
+    questionNode.y = Math.round(questionDragState.originY + (event.clientY - questionDragState.startY));
+    event.preventDefault();
+    return;
+  }
+
   if (!dragState.active || !dragState.model) {
     return;
   }
 
-  if (dragState.pointerId != null && event.pointerId !== dragState.pointerId) {
+  if (dragMeta.pointerId != null && event.pointerId !== dragMeta.pointerId) {
     return;
   }
 
@@ -976,15 +1457,17 @@ function onWindowPointerMove(event) {
     return;
   }
 
-  dragState.pendingX = dragState.originX + (event.clientX - dragState.startX);
-  dragState.pendingY = dragState.originY + (event.clientY - dragState.startY);
-  event.preventDefault();
+  dragLatestClientX = event.clientX;
+  dragLatestClientY = event.clientY;
 
-  if (!dragState.rafId) {
-    dragState.rafId = window.requestAnimationFrame(() => {
-      dragState.rafId = 0;
-      if (activeDragEl) {
-        activeDragEl.style.transform = `translate3d(${Math.round(dragState.pendingX)}px, ${Math.round(dragState.pendingY)}px, 0)`;
+  if (!dragRafId) {
+    dragRafId = window.requestAnimationFrame(() => {
+      dragRafId = 0;
+      dragRenderX = dragMeta.originX + (dragLatestClientX - dragMeta.startX);
+      dragRenderY = dragMeta.originY + (dragLatestClientY - dragMeta.startY);
+      const ghostEl = dragGhostRef.value;
+      if (ghostEl) {
+        ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
       }
     });
   }
@@ -995,23 +1478,35 @@ function stopDragging() {
     return;
   }
 
-  if (dragState.rafId) {
-    window.cancelAnimationFrame(dragState.rafId);
-    dragState.rafId = 0;
+  if (dragRafId) {
+    window.cancelAnimationFrame(dragRafId);
+    dragRafId = 0;
   }
 
   if (dragState.model && nodeLayoutMap[dragState.model]) {
-    nodeLayoutMap[dragState.model].x = Math.round(dragState.pendingX);
-    nodeLayoutMap[dragState.model].y = Math.round(dragState.pendingY);
+    nodeLayoutMap[dragState.model].x = Math.round(dragRenderX);
+    nodeLayoutMap[dragState.model].y = Math.round(dragRenderY);
   }
 
-  if (activeDragEl) {
-    activeDragEl.style.willChange = "auto";
+  if (dragGhostRef.value) {
+    dragGhostRef.value.style.willChange = "auto";
   }
 
+  dragGhost.active = false;
+  dragGhost.title = "";
   dragState.active = false;
   dragState.model = "";
-  dragState.pointerId = null;
+  dragMeta.pointerId = null;
+  dragMeta.startX = 0;
+  dragMeta.startY = 0;
+  dragMeta.originX = 0;
+  dragMeta.originY = 0;
+  dragLatestClientX = 0;
+  dragLatestClientY = 0;
+  dragRenderX = 0;
+  dragRenderY = 0;
+  dragGhost.x = 0;
+  dragGhost.y = 0;
   activeDragEl = null;
   saveFlowLayout();
 }
@@ -1025,8 +1520,18 @@ function stopCanvasPanning() {
   panState.pointerId = null;
 }
 
+function stopQuestionDragging() {
+  if (!questionDragState.active) {
+    return;
+  }
+  questionDragState.active = false;
+  questionDragState.pointerId = null;
+}
+
 function onWindowPointerUp() {
+  stopSummaryDraft();
   stopCanvasPanning();
+  stopQuestionDragging();
   stopDragging();
 }
 
@@ -1147,8 +1652,11 @@ onBeforeUnmount(() => {
   clearSidebarCloseTimer();
   clearInputPanelCloseTimer();
   stopCanvasPanning();
+  stopQuestionDragging();
   stopDragging();
   abortAllStreams();
+  summaryControllers.forEach((ctrl) => ctrl.abort());
+  summaryControllers.clear();
   if (mathTypesetTimer) {
     clearTimeout(mathTypesetTimer);
     mathTypesetTimer = null;
@@ -1248,6 +1756,9 @@ function onSidebarLeave() {
 }
 
 function onWindowMouseMoveForSidebar(event) {
+  if (dragState.active || panState.active || questionDragState.active || summaryCreateState.active) {
+    return;
+  }
   if (!sidebarVisible.value || sidebarPinned.value) {
     return;
   }
@@ -1291,12 +1802,17 @@ function toggleInputPinned() {
 
 function clearModelStates() {
   stopDragging();
+  stopQuestionDragging();
+  stopSummaryDraft();
   flushDirtyModelsNow();
   dirtyModels.clear();
   activeModelKeys.value = new Set();
   Object.keys(retryingMap).forEach((key) => delete retryingMap[key]);
   Object.keys(stateMap).forEach((key) => delete stateMap[key]);
   Object.keys(nodeLayoutMap).forEach((key) => delete nodeLayoutMap[key]);
+  summaryControllers.forEach((ctrl) => ctrl.abort());
+  summaryControllers.clear();
+  summaryBlocks.value = [];
   saveChatUiState();
 }
 
@@ -1354,6 +1870,7 @@ async function send() {
 
     initPanelsByEnabledConfigs();
     lastSentPrompt.value = text;
+    setQuestionNodeContent(text);
     acceptIncomingEvents.value = true;
 
     abortAllStreams();
@@ -1494,6 +2011,7 @@ async function clear() {
   const oldSessionId = sessionId.value;
   prompt.value = "";
   lastSentPrompt.value = "";
+  setQuestionNodeContent("");
   clearModelStates();
   clearChatUiStateStorage();
 
@@ -1750,6 +2268,131 @@ watch(
   height: 100%;
 }
 
+.flow-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.flow-link {
+  fill: none;
+  stroke: rgba(71, 85, 105, 0.5);
+  stroke-width: 1.6;
+  stroke-dasharray: 6 6;
+}
+
+.question-node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 1px solid #2f3b52;
+  border-bottom: 0;
+  background: linear-gradient(160deg, #222834 0%, #1b2230 100%);
+  border-radius: 18px;
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.32);
+  padding: 14px 16px 4px;
+  color: #e5e7eb;
+  z-index: 2;
+}
+
+.question-drag-handle {
+  cursor: grab;
+  user-select: none;
+}
+
+.question-drag-handle:active {
+  cursor: grabbing;
+}
+
+.question-chip {
+  display: inline-block;
+  font-size: 12px;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-bottom: 8px;
+}
+
+.question-text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: #f8fafc;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.question-meta {
+  margin-top: 4px;
+  margin-bottom: 0;
+  line-height: 1.1;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.summary-draft {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 1px dashed #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+  pointer-events: none;
+}
+
+.summary-block {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.summary-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #334155;
+}
+
+.summary-block-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summary-selected-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.summary-empty-tip {
+  font-size: 12px;
+  color: #8a93a1;
+}
+
+.summary-error {
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.summary-content {
+  max-height: 240px;
+  overflow: auto;
+}
+
 .flow-canvas.dragging {
   cursor: grabbing;
 }
@@ -1758,6 +2401,8 @@ watch(
   border: 1px solid #dfe4f0;
   min-height: 230px;
   width: 340px;
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .flow-node {
@@ -1765,10 +2410,38 @@ watch(
   margin: 0;
   will-change: transform;
   contain: layout paint;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+  transition: none !important;
 }
 
 .flow-node.dragging {
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.drag-source-hidden {
+  visibility: hidden;
+}
+
+.drag-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16);
+  padding: 12px 14px;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.drag-ghost-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 1.2;
 }
 
 .card-head {
