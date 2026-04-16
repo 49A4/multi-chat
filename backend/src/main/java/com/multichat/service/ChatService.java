@@ -34,23 +34,24 @@ public class ChatService {
     private final OpenAiCompatClient openAiCompatClient;
 
     public Flux<SseEvent> streamChat(
+        String clientId,
         String sessionId,
         String prompt,
         List<String> targetModels,
         Boolean appendUserMessage
     ) {
-        ChatSession existingSession = sessionStore.findById(sessionId)
+        ChatSession existingSession = sessionStore.findByIdAndOwner(sessionId, clientId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + sessionId));
 
         boolean shouldAppendUserMessage = appendUserMessage == null || appendUserMessage;
         if (shouldAppendUserMessage) {
-            sessionStore.appendMessage(existingSession.getId(), ChatMessage.builder()
+            sessionStore.appendMessage(existingSession.getId(), clientId, ChatMessage.builder()
                 .role("user")
                 .content(prompt)
                 .build());
         }
 
-        List<ChatMessage> history = sessionStore.findById(sessionId)
+        List<ChatMessage> history = sessionStore.findByIdAndOwner(sessionId, clientId)
             .map(ChatSession::getMessages)
             .map(List::copyOf)
             .orElse(List.of());

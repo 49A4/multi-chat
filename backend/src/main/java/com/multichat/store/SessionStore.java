@@ -15,28 +15,47 @@ public class SessionStore {
     private static final int MAX_MESSAGES_PER_SESSION = 100;
     private final ConcurrentHashMap<String, ChatSession> store = new ConcurrentHashMap<>();
 
-    public ChatSession create(String title) {
-        ChatSession session = ChatSession.builder().title(title).build();
+    public ChatSession create(String ownerId, String title) {
+        ChatSession session = ChatSession.builder()
+            .ownerId(ownerId)
+            .title(title)
+            .build();
         store.put(session.getId(), session);
         return session;
     }
 
-    public Optional<ChatSession> findById(String id) {
-        return Optional.ofNullable(store.get(id));
+    public Optional<ChatSession> findByIdAndOwner(String id, String ownerId) {
+        ChatSession session = store.get(id);
+        if (!isOwner(session, ownerId)) {
+            return Optional.empty();
+        }
+        return Optional.of(session);
     }
 
-    public List<ChatSession> findAll() {
+    public List<ChatSession> findAllByOwner(String ownerId) {
         return store.values().stream()
+            .filter(session -> isOwner(session, ownerId))
             .sorted(Comparator.comparingLong(ChatSession::getCreatedAt).reversed())
             .toList();
     }
 
-    public boolean deleteById(String id) {
-        return store.remove(id) != null;
+    public boolean deleteByIdAndOwner(String id, String ownerId) {
+        ChatSession session = store.get(id);
+        if (!isOwner(session, ownerId)) {
+            return false;
+        }
+        return store.remove(id, session);
     }
 
-    public ChatSession appendMessage(String id, ChatMessage message) {
+    public ChatSession appendMessage(String id, String ownerId, ChatMessage message) {
+        ChatSession existing = store.get(id);
+        if (!isOwner(existing, ownerId)) {
+            return null;
+        }
         return store.computeIfPresent(id, (k, session) -> {
+            if (!isOwner(session, ownerId)) {
+                return session;
+            }
             List<ChatMessage> messages = new ArrayList<>(session.getMessages());
             messages.add(message);
             if (messages.size() > MAX_MESSAGES_PER_SESSION) {
@@ -53,6 +72,17 @@ public class SessionStore {
     public ChatSession replace(String id, ChatSession session) {
         store.put(id, session);
         return session;
+    }
+
+    private boolean isOwner(ChatSession session, String ownerId) {
+        if (session == null || ownerId == null) {
+            return false;
+        }
+        String sessionOwner = session.getOwnerId();
+        if (sessionOwner == null || sessionOwner.isBlank()) {
+            return false;
+        }
+        return sessionOwner.equals(ownerId);
     }
 
     private String buildTitleFromContent(String content) {

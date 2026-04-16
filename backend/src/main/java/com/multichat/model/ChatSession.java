@@ -17,6 +17,9 @@ public class ChatSession {
     @Builder.Default
     private String id = UUID.randomUUID().toString();
 
+    @Builder.Default
+    private String ownerId = "web-anonymous";
+
     private String title;
 
     @Builder.Default

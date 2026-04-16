@@ -21,11 +21,11 @@ public class DemoChatService {
 
     private final SessionStore sessionStore;
 
-    public Flux<SseEvent> streamDemo(String sessionId, String prompt) {
-        ChatSession session = sessionStore.findById(sessionId)
+    public Flux<SseEvent> streamDemo(String clientId, String sessionId, String prompt) {
+        ChatSession session = sessionStore.findByIdAndOwner(sessionId, clientId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + sessionId));
 
-        sessionStore.appendMessage(session.getId(), ChatMessage.builder()
+        sessionStore.appendMessage(session.getId(), clientId, ChatMessage.builder()
             .role("user")
             .content(prompt)
             .build());

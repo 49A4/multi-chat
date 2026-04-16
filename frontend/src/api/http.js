@@ -1,13 +1,40 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const CLIENT_ID_STORAGE_KEY = "multi-chat-client-id-v1";
+const CLIENT_ID_HEADER = "X-Client-Id";
 
 function buildUrl(path) {
   return `${BASE_URL}${path}`;
+}
+
+function generateClientId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `web-${crypto.randomUUID()}`;
+  }
+  return `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getClientId() {
+  if (typeof window === "undefined") {
+    return "web-server";
+  }
+  try {
+    const existing = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+    if (existing && existing.trim()) {
+      return existing.trim();
+    }
+    const created = generateClientId();
+    window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return generateClientId();
+  }
 }
 
 async function request(path, options = {}) {
   const response = await fetch(buildUrl(path), {
     headers: {
       "Content-Type": "application/json",
+      [CLIENT_ID_HEADER]: getClientId(),
       ...(options.headers || {})
     },
     ...options
@@ -58,7 +85,8 @@ export async function streamPost(path, body, onEvent, signal) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Accept: "text/event-stream"
+      Accept: "text/event-stream",
+      [CLIENT_ID_HEADER]: getClientId()
     },
     body: JSON.stringify(body ?? {}),
     signal

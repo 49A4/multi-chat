@@ -16,8 +16,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.multichat.util.ClientIdResolver;
 
 @RestController
 @RequestMapping("/api/sessions")
@@ -27,8 +29,11 @@ public class SessionController {
     private final SessionStore sessionStore;
 
     @GetMapping
-    public List<SessionSummary> findAll() {
-        return sessionStore.findAll().stream()
+    public List<SessionSummary> findAll(
+        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader
+    ) {
+        String clientId = ClientIdResolver.resolve(clientIdHeader);
+        return sessionStore.findAllByOwner(clientId).stream()
             .map(session -> SessionSummary.builder()
                 .id(session.getId())
                 .title(session.getTitle())
@@ -39,39 +44,56 @@ public class SessionController {
     }
 
     @PostMapping
-    public ChatSession create(@RequestBody(required = false) Map<String, String> request) {
+    public ChatSession create(
+        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestBody(required = false) Map<String, String> request
+    ) {
+        String clientId = ClientIdResolver.resolve(clientIdHeader);
         String title = request == null ? null : request.get("title");
         if (title != null && title.isBlank()) {
             title = null;
         }
-        return sessionStore.create(title);
+        return sessionStore.create(clientId, title);
     }
 
     @GetMapping("/{id}")
-    public ChatSession findById(@PathVariable String id) {
-        return sessionStore.findById(id)
+    public ChatSession findById(
+        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @PathVariable String id
+    ) {
+        String clientId = ClientIdResolver.resolve(clientIdHeader);
+        return sessionStore.findByIdAndOwner(id, clientId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id));
     }
 
     @DeleteMapping("/{id}")
-    public void delete(@PathVariable String id) {
-        boolean removed = sessionStore.deleteById(id);
+    public void delete(
+        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @PathVariable String id
+    ) {
+        String clientId = ClientIdResolver.resolve(clientIdHeader);
+        boolean removed = sessionStore.deleteByIdAndOwner(id, clientId);
         if (!removed) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id);
         }
     }
 
     @PostMapping("/{id}/adopt")
-    public ChatSession adopt(@PathVariable String id, @Valid @RequestBody AdoptRequest request) {
-        ChatSession session = sessionStore.findById(id)
+    public ChatSession adopt(
+        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @PathVariable String id,
+        @Valid @RequestBody AdoptRequest request
+    ) {
+        String clientId = ClientIdResolver.resolve(clientIdHeader);
+        ChatSession session = sessionStore.findByIdAndOwner(id, clientId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id));
 
-        sessionStore.appendMessage(session.getId(), ChatMessage.builder()
+        sessionStore.appendMessage(session.getId(), clientId, ChatMessage.builder()
             .role("assistant")
             .content(request.getContent())
             .build());
 
-        return sessionStore.findById(id)
+        return sessionStore.findByIdAndOwner(id, clientId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id));
     }
 }
