@@ -1,16 +1,12 @@
 package com.multichat.service;
 
-import com.multichat.exception.ApiException;
-import com.multichat.model.ChatMessage;
-import com.multichat.model.ChatSession;
 import com.multichat.model.SseEvent;
-import com.multichat.store.SessionStore;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -19,21 +15,13 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class DemoChatService {
 
-    private final SessionStore sessionStore;
-
     public Flux<SseEvent> streamDemo(String clientId, String sessionId, String prompt) {
-        ChatSession session = sessionStore.findByIdAndOwner(sessionId, clientId)
-            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + sessionId));
-
-        sessionStore.appendMessage(session.getId(), clientId, ChatMessage.builder()
-            .role("user")
-            .content(prompt)
-            .build());
+        String eventSessionId = normalizeSessionId(sessionId);
 
         Map<String, String> responses = buildMockResponses(prompt);
 
         List<Flux<SseEvent>> streams = responses.entrySet().stream()
-            .map(entry -> mockModelStream(sessionId, entry.getKey(), entry.getValue()))
+            .map(entry -> mockModelStream(eventSessionId, entry.getKey(), entry.getValue()))
             .toList();
 
         return Flux.merge(streams);
@@ -67,5 +55,12 @@ public class DemoChatService {
             result[i] = text.substring(start, end);
         }
         return result;
+    }
+
+    private String normalizeSessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return "stateless-" + UUID.randomUUID();
+        }
+        return sessionId.trim();
     }
 }

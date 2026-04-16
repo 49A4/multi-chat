@@ -1,18 +1,15 @@
 package com.multichat.service;
 
-import com.multichat.exception.ApiException;
 import com.multichat.model.AiApiConfig;
 import com.multichat.model.ChatMessage;
-import com.multichat.model.ChatSession;
 import com.multichat.model.SseEvent;
 import com.multichat.store.ApiConfigStore;
-import com.multichat.store.SessionStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -29,7 +26,6 @@ public class ChatService {
         If reasoning is needed, do it internally and only provide the final result.
         """;
 
-    private final SessionStore sessionStore;
     private final ApiConfigStore apiConfigStore;
     private final OpenAiCompatClient openAiCompatClient;
 
@@ -40,33 +36,12 @@ public class ChatService {
         List<String> targetModels,
         Boolean appendUserMessage
     ) {
-        ChatSession existingSession = sessionStore.findByIdAndOwner(sessionId, clientId)
-            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + sessionId));
-
-        boolean shouldAppendUserMessage = appendUserMessage == null || appendUserMessage;
-        if (shouldAppendUserMessage) {
-            sessionStore.appendMessage(existingSession.getId(), clientId, ChatMessage.builder()
-                .role("user")
-                .content(prompt)
-                .build());
-        }
-
-        List<ChatMessage> history = sessionStore.findByIdAndOwner(sessionId, clientId)
-            .map(ChatSession::getMessages)
-            .map(List::copyOf)
-            .orElse(List.of());
-        List<ChatMessage> historyForContext = new ArrayList<>(history);
-        if (!shouldAppendUserMessage) {
-            historyForContext.add(ChatMessage.builder()
-                .role("user")
-                .content(prompt)
-                .build());
-        }
-        List<ChatMessage> context = buildRequestContext(historyForContext);
+        String eventSessionId = normalizeSessionId(sessionId);
+        List<ChatMessage> context = buildRequestContext(prompt);
 
         List<AiApiConfig> enabledConfigs = apiConfigStore.findAllEnabled();
         if (enabledConfigs.isEmpty()) {
-            return Flux.just(SseEvent.error(sessionId, "system", "No enabled API config found", ""));
+            return Flux.just(SseEvent.error(eventSessionId, "system", "No enabled API config found", ""));
         }
 
         Set<String> requestedModelTags = targetModels == null
@@ -87,11 +62,11 @@ public class ChatService {
                 .toList();
 
         if (targetConfigs.isEmpty()) {
-            return Flux.just(SseEvent.error(sessionId, "system", "No matched enabled model found for retry", ""));
+            return Flux.just(SseEvent.error(eventSessionId, "system", "No matched enabled model found for retry", ""));
         }
 
         List<Flux<SseEvent>> streams = targetConfigs.stream()
-            .map(config -> buildModelEventStream(sessionId, config, context))
+            .map(config -> buildModelEventStream(eventSessionId, config, context))
             .toList();
 
         return Flux.merge(streams);
@@ -131,13 +106,23 @@ public class ChatService {
         return config.getModelName();
     }
 
-    private List<ChatMessage> buildRequestContext(List<ChatMessage> history) {
-        List<ChatMessage> context = new ArrayList<>(history.size() + 1);
+    private List<ChatMessage> buildRequestContext(String prompt) {
+        List<ChatMessage> context = new ArrayList<>(2);
         context.add(ChatMessage.builder()
             .role("system")
             .content(NO_THINK_SYSTEM_PROMPT)
             .build());
-        context.addAll(history);
+        context.add(ChatMessage.builder()
+            .role("user")
+            .content(prompt)
+            .build());
         return context;
+    }
+
+    private String normalizeSessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return "stateless-" + UUID.randomUUID();
+        }
+        return sessionId.trim();
     }
 }

@@ -230,7 +230,7 @@
             固定
           </el-button>
           <el-button @click="resetLayout">重置布局</el-button>
-          <el-button @click="clear">清空输出</el-button>
+          <el-button @click="clear">新建对话</el-button>
           <el-button type="primary" :loading="loading" @click="send">发送 (Enter)</el-button>
         </div>
       </template>
@@ -248,18 +248,18 @@ import hljs from "highlight.js";
 import ApiConfigDialog from "../components/ApiConfigDialog.vue";
 import { sendPromptStream } from "../api/chat";
 import { fetchConfigs } from "../api/configs";
-import { createSession, deleteSession } from "../api/sessions";
 
-const prompt = ref("");
+const DEFAULT_MARKDOWN_PROMPT = "展示md的所有常见语法";
+
+const prompt = ref(DEFAULT_MARKDOWN_PROMPT);
 const loading = ref(false);
-const sessionId = ref("");
 const configDialogVisible = ref(false);
 const sidebarVisible = ref(false);
 const apiConfigs = ref([]);
 const lastSentPrompt = ref("");
 const inputCollapsed = ref(false);
 const sidebarPinned = ref(false);
-const inputPinned = ref(false);
+const inputPinned = ref(true);
 
 const stateMap = reactive({});
 const retryingMap = reactive({});
@@ -855,111 +855,15 @@ function buildRenderedContent(item) {
 }
 
 function loadFlowLayout() {
-  if (typeof window === "undefined") {
-    return {};
-  }
-
-  try {
-    const raw = window.localStorage.getItem(FLOW_LAYOUT_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return {};
 }
 
 function saveChatUiState() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const models = modelList.value.map((item) => ({
-    model: item.model,
-    title: item.title || item.model,
-    content: `${item.content || ""}${item.pendingDelta || ""}`,
-    done: Boolean(item.done),
-    error: item.error || ""
-  }));
-
-  const payload = {
-    prompt: prompt.value || "",
-    lastSentPrompt: lastSentPrompt.value || "",
-    sidebarPinned: Boolean(sidebarPinned.value),
-    inputPinned: Boolean(inputPinned.value),
-    canvasOffset: {
-      x: Number.isFinite(canvasOffset.x) ? canvasOffset.x : 0,
-      y: Number.isFinite(canvasOffset.y) ? canvasOffset.y : 0
-    },
-    models
-  };
-
-  window.localStorage.setItem(CHAT_UI_STORAGE_KEY, JSON.stringify(payload));
+  return;
 }
 
 function restoreChatUiState() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(CHAT_UI_STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return;
-    }
-
-    prompt.value = typeof parsed.prompt === "string" ? parsed.prompt : "";
-    lastSentPrompt.value = typeof parsed.lastSentPrompt === "string" ? parsed.lastSentPrompt : "";
-    setQuestionNodeContent(lastSentPrompt.value);
-    sidebarPinned.value = Boolean(parsed.sidebarPinned);
-    inputPinned.value = Boolean(parsed.inputPinned);
-    if (inputPinned.value) {
-      inputCollapsed.value = false;
-    }
-    if (sidebarPinned.value) {
-      sidebarVisible.value = true;
-    }
-
-    const savedOffset = parsed.canvasOffset || {};
-    canvasOffset.x = Number.isFinite(savedOffset.x) ? savedOffset.x : 0;
-    canvasOffset.y = Number.isFinite(savedOffset.y) ? savedOffset.y : 0;
-
-    const models = Array.isArray(parsed.models) ? parsed.models : [];
-    if (!models.length) {
-      return;
-    }
-
-    clearModelStates();
-    models.forEach((saved, index) => {
-      const modelTag = (saved?.model || "").trim();
-      if (!modelTag) {
-        return;
-      }
-      const parsedTag = parseModelTag(modelTag);
-      const title = (saved?.title || "").trim() || parsedTag.title || parsedTag.key;
-      ensureNodeLayout(parsedTag.key, index);
-      const restored = {
-        model: parsedTag.key,
-        title,
-        content: typeof saved.content === "string" ? saved.content : "",
-        pendingDelta: "",
-        renderedHtml: "",
-        done: Boolean(saved.done),
-        error: typeof saved.error === "string" ? saved.error : ""
-      };
-      restored.renderedHtml = buildRenderedContent(restored);
-      stateMap[model] = restored;
-    });
-    scheduleMathTypeset();
-  } catch {
-    // Ignore corrupted local cache.
-  }
+  return;
 }
 
 function clearChatUiStateStorage() {
@@ -969,11 +873,14 @@ function clearChatUiStateStorage() {
   window.localStorage.removeItem(CHAT_UI_STORAGE_KEY);
 }
 
-function saveFlowLayout() {
+function clearFlowLayoutStorage() {
   if (typeof window === "undefined") {
     return;
   }
+  window.localStorage.removeItem(FLOW_LAYOUT_STORAGE_KEY);
+}
 
+function saveFlowLayout() {
   const map = {};
   Object.keys(nodeLayoutMap).forEach((model) => {
     const layout = nodeLayoutMap[model];
@@ -983,7 +890,6 @@ function saveFlowLayout() {
     map[model] = { x: layout.x, y: layout.y };
   });
   flowLayoutCache.value = map;
-  window.localStorage.setItem(FLOW_LAYOUT_STORAGE_KEY, JSON.stringify(map));
 }
 
 function getDefaultPosition(index) {
@@ -1224,7 +1130,6 @@ async function runSummaryBlock(block) {
 ${sections.join("\n\n---\n\n")}`;
 
   const targetModel = buildModelTagFromConfig(enabled[0]);
-  let tempSessionId = "";
   const previousCtrl = summaryControllers.get(block.id);
   if (previousCtrl) {
     previousCtrl.abort();
@@ -1237,10 +1142,8 @@ ${sections.join("\n\n---\n\n")}`;
   block.renderedHtml = renderMarkdownPreservingMath("_总结中..._");
 
   try {
-    const tempSession = await createSession(`Summary-${block.id}`);
-    tempSessionId = tempSession.id;
     await sendPromptStream(
-      tempSessionId,
+      "",
       payloadPrompt,
       (event) => {
         const eventModel = parseModelTag(event?.model || "").key;
@@ -1269,13 +1172,6 @@ ${sections.join("\n\n---\n\n")}`;
       block.error = error?.message || "总结失败";
     }
   } finally {
-    if (tempSessionId) {
-      try {
-        await deleteSession(tempSessionId);
-      } catch {
-        // Ignore temporary summary session cleanup failures.
-      }
-    }
     block.loading = false;
     if (block.error) {
       block.renderedHtml = renderMarkdownPreservingMath(`**Error:** ${block.error}`);
@@ -1635,13 +1531,19 @@ async function typesetMath() {
 }
 
 onMounted(async () => {
-  flowLayoutCache.value = loadFlowLayout();
-  restoreChatUiState();
+  flowLayoutCache.value = {};
+  clearFlowLayoutStorage();
+  clearChatUiStateStorage();
+  prompt.value = DEFAULT_MARKDOWN_PROMPT;
+  lastSentPrompt.value = "";
+  setQuestionNodeContent("");
+  canvasOffset.x = 0;
+  canvasOffset.y = 0;
   window.addEventListener("pointermove", onWindowPointerMove);
   window.addEventListener("pointerup", onWindowPointerUp);
   window.addEventListener("pointercancel", onWindowPointerUp);
   window.addEventListener("mousemove", onWindowMouseMoveForSidebar);
-  await Promise.all([initSession(), loadConfigs()]);
+  await loadConfigs();
 });
 
 onBeforeUnmount(() => {
@@ -1663,15 +1565,6 @@ onBeforeUnmount(() => {
   }
   flushDirtyModelsNow();
 });
-
-async function initSession() {
-  try {
-    const session = await createSession("Chat Session");
-    sessionId.value = session.id;
-  } catch (error) {
-    ElMessage.error(error.message || "初始化会话失败");
-  }
-}
 
 async function loadConfigs() {
   try {
@@ -1853,14 +1746,6 @@ async function send() {
   loading.value = true;
 
   try {
-    if (!sessionId.value) {
-      await initSession();
-    }
-    if (!sessionId.value) {
-      ElMessage.error("会话初始化失败，请稍后重试");
-      return;
-    }
-
     await loadConfigs();
     const enabled = apiConfigs.value.filter((cfg) => cfg.enabled);
     if (enabled.length === 0) {
@@ -1875,7 +1760,7 @@ async function send() {
 
     abortAllStreams();
     controller = new AbortController();
-    await sendPromptStream(sessionId.value, text, onStreamEvent, controller.signal);
+    await sendPromptStream("", text, onStreamEvent, controller.signal);
   } catch (error) {
     ElMessage.error(error.message || "流式请求失败");
   } finally {
@@ -1952,7 +1837,6 @@ async function regenerateModel(model) {
   }
   const retryController = new AbortController();
   retryControllers.set(model, retryController);
-  let retrySessionId = "";
   const onRetryStreamEvent = (event) => {
     const eventModel = parseModelTag(event?.model || "Unknown").key;
     if (eventModel !== model) {
@@ -1961,10 +1845,8 @@ async function regenerateModel(model) {
     onStreamEvent(event);
   };
   try {
-    const tempSession = await createSession(`Retry-${model}`);
-    retrySessionId = tempSession.id;
     await sendPromptStream(
-      retrySessionId,
+      "",
       basePrompt,
       onRetryStreamEvent,
       retryController.signal,
@@ -1981,13 +1863,6 @@ async function regenerateModel(model) {
       ElMessage.error(item.error);
     }
   } finally {
-    if (retrySessionId) {
-      try {
-        await deleteSession(retrySessionId);
-      } catch {
-        // Ignore cleanup failure for retry temp session.
-      }
-    }
     retryControllers.delete(model);
     delete retryingMap[model];
     flushDirtyModelsNow();
@@ -2008,23 +1883,16 @@ async function clear() {
   abortAllStreams();
   loading.value = false;
 
-  const oldSessionId = sessionId.value;
-  prompt.value = "";
+  prompt.value = DEFAULT_MARKDOWN_PROMPT;
   lastSentPrompt.value = "";
   setQuestionNodeContent("");
   clearModelStates();
+  canvasOffset.x = 0;
+  canvasOffset.y = 0;
+  flowLayoutCache.value = {};
+  clearFlowLayoutStorage();
   clearChatUiStateStorage();
-
-  try {
-    if (oldSessionId) {
-      await deleteSession(oldSessionId);
-    }
-  } catch {
-    // Ignore delete failures and still create a fresh session.
-  }
-
-  await initSession();
-  ElMessage.success("已清空并重置上下文");
+  ElMessage.success("已开启全新对话");
 }
 
 async function handleMarkdownAction(event) {

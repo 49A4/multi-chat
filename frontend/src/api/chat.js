@@ -1,10 +1,11 @@
 import { streamPost } from "./http";
 
 export function sendPromptStream(sessionId, prompt, onEvent, signal, options = {}) {
-  const body = {
-    sessionId,
-    prompt
-  };
+  const body = { prompt };
+
+  if (typeof sessionId === "string" && sessionId.trim()) {
+    body.sessionId = sessionId.trim();
+  }
 
   if (Array.isArray(options.targetModels) && options.targetModels.length > 0) {
     body.targetModels = options.targetModels;
