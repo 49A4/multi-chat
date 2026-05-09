@@ -1,0 +1,46 @@
+﻿/* 图片悬停预览浮层 */
+.image-hover-preview {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+  max-width: 320px;
+  max-height: 240px;
+  backdrop-filter: blur(12px);
+}
+
+.image-hover-preview img {
+  display: block;
+  max-width: 300px;
+  max-height: 220px;
+  width: auto;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* 图片全屏查看 */
+.image-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+.image-viewer-img {
+  max-width: 92vw;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
+

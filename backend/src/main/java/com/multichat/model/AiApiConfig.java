@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.DecimalMin;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,6 +16,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AiApiConfig {
+
+    public static final String TYPE_TEXT = "text";
+    public static final String TYPE_IMAGE = "image";
 
     @Builder.Default
     private String id = UUID.randomUUID().toString();
@@ -31,9 +35,17 @@ public class AiApiConfig {
     @NotBlank(message = "modelName cannot be blank")
     private String modelName;
 
+    @Builder.Default
+    private String apiType = TYPE_TEXT;
+
     @NotNull
     @Builder.Default
     private Boolean enabled = Boolean.TRUE;
+
+    @Min(value = 1, message = "generateCount must be >= 1")
+    @Max(value = 20, message = "generateCount must be <= 20")
+    @Builder.Default
+    private Integer generateCount = 1;
 
     @Min(value = 1, message = "maxTokens must be >= 1")
     @Max(value = 16384, message = "maxTokens must be <= 16384")
@@ -44,4 +56,10 @@ public class AiApiConfig {
     @Max(value = 2, message = "temperature must be <= 2")
     @Builder.Default
     private Double temperature = 0.7;
+
+    @DecimalMin(value = "0.0", message = "inputPricePerMillion must be >= 0")
+    private Double inputPricePerMillion;
+
+    @DecimalMin(value = "0.0", message = "outputPricePerMillion must be >= 0")
+    private Double outputPricePerMillion;
 }

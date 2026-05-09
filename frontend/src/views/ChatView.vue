@@ -1,302 +1,347 @@
 ﻿<template>
   <div class="demo-page">
-    <section :class="['workspace', { 'with-sidebar': sidebarVisible }]">
-      <section class="flow-board" @click="handleMarkdownAction">
-        <div
-          ref="flowCanvasRef"
-          :class="['flow-canvas', { dragging: dragState.active || panState.active }]"
-          :style="flowCanvasStyle"
-          title="Shift+空白拖拽创建总结块，普通空白拖拽平移画布"
-          @pointerdown="onCanvasPointerDown"
-          @wheel="onCanvasWheel"
-        >
-          <div class="flow-layer" :style="flowLayerStyle">
-            <svg
-              v-if="showQuestionNode && questionConnections.length > 0 && !dragState.active"
-              class="flow-links"
-            >
-              <path
-                v-for="conn in questionConnections"
-                :key="conn.key"
-                class="flow-link"
-                :d="conn.path"
-              />
-            </svg>
+    <HistorySidebar
+      :visible="historySidebarVisible"
+      :pinned="historySidebarPinned"
+      :active-title="activeCanvasSnapshotTitle"
+      :active-id="activeCanvasSnapshotId"
+      :loading="snapshotLoading"
+      :snapshots="canvasSnapshots"
+      :panel-ref-target="historySidebarPanelRef"
+      :peek-ref-target="historySidebarPeekRef"
+      @peek-enter="openHistorySidebar"
+      @peek-leave="onHistorySidebarLeave"
+      @toggle="toggleHistorySidebar"
+      @panel-enter="onHistorySidebarEnter"
+      @panel-leave="onHistorySidebarLeave"
+      @toggle-pinned="toggleHistorySidebarPinned"
+      @create-fresh="createFreshCanvas"
+      @load="loadCanvasSnapshots"
+      @restore="restoreCanvasSnapshot"
+      @remove="removeCanvasSnapshot"
+    />
 
-            <section
-              v-if="showQuestionNode"
-              class="question-node question-drag-handle"
-              :style="questionNodeStyle"
-              @pointerdown="onQuestionPointerDown"
-            >
-              <div class="question-chip">我的问题</div>
-              <div class="question-text">{{ questionNode.text }}</div>
-              <div class="question-meta">{{ questionNode.timeText }}</div>
-            </section>
+    <FlowBoard
+      :sidebar-visible="sidebarVisible"
+      :history-sidebar-visible="historySidebarVisible"
+      :flow-canvas-ref="flowCanvasRef"
+      :drag-ghost-ref="dragGhostRef"
+      :module-action-menu-ref="moduleActionMenuRef"
+      :drag-state="dragState"
+      :pan-state="panState"
+      :flow-canvas-style="flowCanvasStyle"
+      :flow-layer-style="flowLayerStyle"
+      :question-connections="questionConnections"
+      :follow-up-connections="followUpConnections"
+      :question-nodes="questionNodes"
+      :model-list="modelList"
+      :drag-ghost="dragGhost"
+      :drag-ghost-style="dragGhostStyle"
+      :show-module-action-menu="showModuleActionMenu"
+      :module-action-menu-style="moduleActionMenuStyle"
+      :can-retry-selected-module="canRetrySelectedModule"
+      :selected-module-retrying="selectedModuleRetrying"
+      :summary-blocks="summaryBlocks"
+      :summary-create-state="summaryCreateState"
+      :summary-draft-style="summaryDraftStyle"
+      :state-map="stateMap"
+      :question-node-style="questionNodeStyle"
+      :node-style="nodeStyle"
+      :summary-block-style="summaryBlockStyle"
+      :is-question-selected="isQuestionSelected"
+      :is-model-selected="isModelSelected"
+      :format-question-total-cost-cny="formatQuestionTotalCostCny"
+      :format-usage-cost="formatUsageCost"
+      :format-token-usage="formatTokenUsage"
+      @markdown-action="handleMarkdownAction"
+      @canvas-pointer-down="onCanvasPointerDown"
+      @canvas-wheel="onCanvasWheel"
+      @question-pointer-down="onQuestionPointerDown"
+      @select-question="selectQuestionModule"
+      @model-card-pointer-down="onModelCardPointerDown"
+      @model-click="onModelModuleClick"
+      @node-pointer-down="onNodePointerDown"
+      @model-content-pointer-down="onModelContentPointerDown"
+      @image-hover="handleImageHover"
+      @image-click="handleImageClick"
+      @retry-selected="retrySelectedModule"
+      @delete-selected="deleteSelectedModule"
+      @run-summary="runSummaryBlock"
+      @refresh-summary="refreshSummarySelection"
+      @remove-summary="removeSummaryBlock"
+    />
 
-            <el-card
-              v-for="item in modelList"
-              :key="item.model"
-              :data-model="item.model"
-              shadow="never"
-              :class="[
-                'result-card',
-                'flow-node',
-                {
-                  dragging: dragState.active && dragState.model === item.model,
-                  'drag-source-hidden': dragState.active && dragState.model === item.model
-                }
-              ]"
-              :style="nodeStyle(item)"
-            >
-              <template #header>
-                <div class="card-head drag-handle" @pointerdown="onNodePointerDown($event, item.model)">
-                  <strong>{{ item.title || item.model }}</strong>
-                  <div class="card-meta">
-                    <el-button
-                      text
-                      size="small"
-                      class="retry-btn"
-                      :loading="Boolean(retryingMap[item.model])"
-                      @pointerdown.stop
-                      @click.stop="regenerateModel(item.model)"
-                    >
-                      重试
-                    </el-button>
-                    <el-tag v-if="item.error" type="danger" size="small">异常</el-tag>
-                    <el-tag v-else-if="item.done" type="success" size="small">完成</el-tag>
-                    <el-tag v-else type="info" size="small">流式中</el-tag>
-                  </div>
-                </div>
-              </template>
-              <div class="content markdown-body" v-html="item.renderedHtml"></div>
-            </el-card>
+    <ModelSidebar
+      v-model:editor-visible="sidebarConfigEditorVisible"
+      :visible="sidebarVisible"
+      :pinned="sidebarPinned"
+      :auth-user-display-name="authUserDisplayName"
+      :api-configs="apiConfigs"
+      :filtered-api-configs="filteredApiConfigs"
+      :sidebar-api-view="sidebarApiView"
+      :sidebar-api-view-label="sidebarApiViewLabel"
+      :text-api-count="textApiCount"
+      :image-api-count="imageApiCount"
+      :sidebar-config-toggle-pending="sidebarConfigTogglePending"
+      :editing-config-id="sidebarEditingConfigId"
+      :config-form="sidebarConfigForm"
+      :saving="sidebarConfigSaving"
+      :deleting="sidebarConfigDeleting"
+      :api-type-text="API_TYPE_TEXT"
+      :api-type-image="API_TYPE_IMAGE"
+      :normalize-generate-count="normalizeGenerateCount"
+      :resolve-config-id="resolveConfigId"
+      :panel-ref-target="sidebarPanelRef"
+      :peek-ref-target="sidebarPeekRef"
+      @open="openSidebar"
+      @toggle="toggleSidebar"
+      @enter="onSidebarEnter"
+      @leave="onSidebarLeave"
+      @close="sidebarVisible = false"
+      @toggle-pinned="toggleSidebarPinned"
+      @switch-account="switchAccount"
+      @load-configs="loadConfigs"
+      @create-config="openSidebarCreateForm"
+      @switch-api-view="switchSidebarApiView"
+      @row-click="onSidebarApiRowClick"
+      @toggle-config="onSidebarToggleConfig"
+      @close-editor="closeSidebarConfigEditor"
+      @delete-config="deleteSidebarConfig"
+      @save-config="saveSidebarConfig"
+    />
 
-            <section
-              v-if="dragGhost.active"
-              ref="dragGhostRef"
-              class="drag-ghost"
-              :style="dragGhostStyle"
-            >
-              <div class="drag-ghost-title">{{ dragGhost.title }}</div>
-            </section>
+    <ChatInputPanel
+      v-model:prompt="prompt"
+      v-model:generation-mode="generationMode"
+      v-model:image-batch-count="imageBatchCount"
+      v-model:image-aspect-ratio="imageAspectRatio"
+      v-model:image-quality="imageQuality"
+      :sidebar-visible="sidebarVisible"
+      :history-sidebar-visible="historySidebarVisible"
+      :input-collapsed="inputCollapsed"
+      :prompt-contexts="promptContexts"
+      :image-drop-active="imageDropActive"
+      :selected-image-inputs="selectedImageInputs"
+      :selected-image-preview-list="selectedImagePreviewList"
+      :image-preview-drag-from-index="imagePreviewDragFromIndex"
+      :image-preview-drag-over-index="imagePreviewDragOverIndex"
+      :auth-ready="authReady"
+      :max-reference-images="MAX_REFERENCE_IMAGES"
+      :text-mode="TEXT_MODE"
+      :image-mode="IMAGE_MODE"
+      :image-batch-min="IMAGE_BATCH_MIN"
+      :image-batch-max="IMAGE_BATCH_MAX"
+      :image-aspect-ratio-options="IMAGE_ASPECT_RATIO_OPTIONS"
+      :image-quality-options="IMAGE_QUALITY_OPTIONS"
+      :image-input-ref="imageInputRef"
+      @toggle-input="toggleInputPanel"
+      @remove-context="removePromptContext"
+      @prompt-keydown="onPromptKeydown"
+      @image-input-change="onImageInputChange"
+      @clear-image-input="clearImageInput"
+      @image-drag-enter="onImageDragEnter"
+      @image-drag-over="onImageDragOver"
+      @image-drag-leave="onImageDragLeave"
+      @image-drop="onImageDrop"
+      @paste="onInputCardPaste"
+      @preview-grid-drag-over="onImagePreviewGridDragOver"
+      @preview-grid-drop="onImagePreviewGridDrop"
+      @preview-drag-start="onImagePreviewDragStart"
+      @preview-drag-enter="onImagePreviewDragEnter"
+      @preview-drag-over="onImagePreviewDragOver"
+      @preview-drop="onImagePreviewDrop"
+      @preview-drag-end="onImagePreviewDragEnd"
+      @image-hover="handleImageHover"
+      @image-click="handleImageClick"
+      @remove-image-input="removeSelectedImageInput"
+      @send="send"
+    />
 
-            <section
-              v-for="block in summaryBlocks"
-              :key="block.id"
-              class="summary-block"
-              :style="summaryBlockStyle(block)"
-            >
-              <header class="summary-block-head">
-                <strong>总结块</strong>
-                <span>{{ block.selectedModels.length }} 个回答</span>
-              </header>
-              <el-input
-                v-model="block.instruction"
-                type="textarea"
-                :rows="2"
-                resize="none"
-                placeholder="例如：总结这些回答，提炼一致结论和差异点"
-              />
-              <div class="summary-block-actions">
-                <el-button
-                  size="small"
-                  type="primary"
-                  :loading="block.loading"
-                  @click="runSummaryBlock(block)"
-                >
-                  执行总结
-                </el-button>
-                <el-button size="small" @click="refreshSummarySelection(block)">
-                  刷新范围
-                </el-button>
-                <el-button size="small" text type="danger" @click="removeSummaryBlock(block.id)">
-                  删除
-                </el-button>
-              </div>
-              <div class="summary-selected-list">
-                <el-tag
-                  v-for="key in block.selectedModels"
-                  :key="`${block.id}-${key}`"
-                  size="small"
-                  effect="plain"
-                >
-                  {{ stateMap[key]?.title || key }}
-                </el-tag>
-                <span v-if="block.selectedModels.length === 0" class="summary-empty-tip">未命中回答卡片</span>
-              </div>
-              <div v-if="block.error" class="summary-error">{{ block.error }}</div>
-              <div v-else class="content markdown-body summary-content" v-html="block.renderedHtml"></div>
-            </section>
-
-            <div
-              v-if="summaryCreateState.active"
-              class="summary-draft"
-              :style="summaryDraftStyle"
-            ></div>
-          </div>
-        </div>
-      </section>
-    </section>
-
-    <button
-      ref="sidebarPeekRef"
-      class="sidebar-peek"
-      :class="{ open: sidebarVisible }"
-      type="button"
-      @mouseenter="openSidebar"
-      @click="toggleSidebar"
-      :title="sidebarPinned ? '侧边栏已固定' : (sidebarVisible ? '收起侧边栏' : '展开侧边栏')"
+    <el-dialog
+      v-model="authDialogVisible"
+      title="邀请码验证"
+      width="420px"
+      append-to-body
+      destroy-on-close
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :z-index="12050"
+      class="auth-invite-dialog"
     >
-      {{ sidebarVisible ? "›" : "‹" }}
-    </button>
-
-    <aside
-      ref="sidebarPanelRef"
-      :class="['model-sidebar-panel', { open: sidebarVisible }]"
-      @mouseenter="onSidebarEnter"
-      @mouseleave="onSidebarLeave"
-    >
-      <div class="sidebar-head">
-        <h3>模型侧栏</h3>
-        <div class="sidebar-head-actions">
-          <el-button
-            text
-            size="small"
-            class="pin-icon-btn"
-            :class="{ active: sidebarPinned }"
-            :title="sidebarPinned ? '取消固定侧边栏' : '固定侧边栏'"
-            @click="toggleSidebarPinned"
-          >
-            固定
-          </el-button>
-          <el-button text size="small" @click="sidebarVisible = false">收起</el-button>
-        </div>
-      </div>
-      <div class="sidebar-actions">
-        <el-button size="small" @click="loadConfigs">刷新模型</el-button>
-        <el-button size="small" type="primary" plain @click="openConfigDialog">API 配置</el-button>
-      </div>
-
-      <div v-if="apiConfigs.length === 0" class="api-empty">暂无配置，请先添加模型 API。</div>
-      <div v-else class="api-list">
-        <div v-for="item in apiConfigs" :key="item.id" class="api-item">
-          <div class="api-main">
-            <strong>{{ item.name }}</strong>
-            <span>{{ item.modelName }}</span>
-            <el-tag :type="item.enabled ? 'success' : 'info'" size="small">
-              {{ item.enabled ? "启用" : "停用" }}
-            </el-tag>
-          </div>
-          <div class="api-url">{{ item.baseUrl }}</div>
-        </div>
-      </div>
-    </aside>
-
-    <button
-      class="input-peek"
-      :class="{ open: !inputCollapsed, 'with-sidebar': sidebarVisible }"
-      type="button"
-      :title="inputPinned ? '输入栏已固定' : (inputCollapsed ? '展开输入栏' : '收起输入栏')"
-      @mouseenter="openInputPanel"
-      @click="toggleInputPanel"
-    >
-      {{ inputCollapsed ? "▴" : "▾" }}
-    </button>
-
-    <section
-      :class="['input-card', { 'with-sidebar': sidebarVisible, collapsed: inputCollapsed }]"
-      @mouseenter="openInputPanel"
-      @mouseleave="onInputPanelLeave"
-    >
-      <template v-if="!inputCollapsed">
-        <el-input
-          v-model="prompt"
-          type="textarea"
-          :rows="3"
-          resize="none"
-          placeholder="例如：请解释一下并发流式渲染"
-          @keydown="onPromptKeydown"
-        />
-        <div class="actions">
-          <el-button
-            text
-            size="small"
-            class="pin-icon-btn pin-btn"
-            :class="{ active: inputPinned }"
-            :title="inputPinned ? '取消固定输入栏' : '固定输入栏'"
-            @click="toggleInputPinned"
-          >
-            固定
-          </el-button>
-          <el-button @click="resetLayout">重置布局</el-button>
-          <el-button @click="clear">新建对话</el-button>
-          <el-button type="primary" :loading="loading" @click="send">发送 (Enter)</el-button>
-        </div>
+      <div class="auth-invite-tip">请输入邀请码后才能使用系统。</div>
+      <el-input
+        v-model="authInviteCode"
+        type="password"
+        show-password
+        placeholder="请输入邀请码"
+        autocomplete="off"
+        @keydown.enter.prevent="submitInviteLogin"
+      />
+      <template #footer>
+        <el-button type="primary" :loading="authSubmitting" @click="submitInviteLogin">
+          进入系统
+        </el-button>
       </template>
-    </section>
+    </el-dialog>
 
-    <ApiConfigDialog v-model="configDialogVisible" @saved="onConfigSaved" />
+    <!-- 图片悬停预览浮层 -->
+    <div
+      v-if="imageHover.visible"
+      class="image-hover-preview"
+      :style="{ left: imageHover.x + 'px', top: imageHover.y + 'px' }"
+    >
+      <img :src="imageHover.src" alt="" />
+    </div>
+
+    <!-- 图片全屏查看 -->
+    <div v-if="imageViewer.visible" class="image-viewer-overlay" @click="closeImageViewer">
+      <img :src="imageViewer.src" class="image-viewer-img" alt="" @click.stop />
+    </div>
+
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import MarkdownIt from "markdown-it";
-import hljs from "highlight.js";
-import ApiConfigDialog from "../components/ApiConfigDialog.vue";
 import { sendPromptStream } from "../api/chat";
-import { fetchConfigs } from "../api/configs";
+import { getAuthExpiredEventName } from "../api/http";
+import {
+  buildRenderedContent,
+  renderMarkdownPreservingMath,
+  renderMarkdownWithCollapsibleThinking,
+  renderStreamingMarkdown
+} from "./chat/markdownRenderer";
+import { buildModelTagFromConfig, normalizeGenerateCount, parseModelTag } from "./chat/modelTag";
+import { createStreamOrchestrator } from "./chat/streamOrchestrator";
+import { createContextSummaryManager } from "./chat/contextSummaryManager";
+import { createPanelVisibilityManager } from "./chat/panelVisibilityManager";
+import { createCanvasInteractionManager } from "./chat/canvasInteractionManager";
+import { createChatNodeFactory } from "./chat/chatNodeFactory";
+import HistorySidebar from "./chat/components/HistorySidebar.vue";
+import ModelSidebar from "./chat/components/ModelSidebar.vue";
+import ChatInputPanel from "./chat/components/ChatInputPanel.vue";
+import FlowBoard from "./chat/components/FlowBoard.vue";
+import {
+  MAX_REFERENCE_IMAGES,
+  cloneImageInputPayload,
+  cloneImageInputPayloadList,
+  useImageInputs
+} from "./chat/useImageInputs";
+import { formatSnapshotTime, useCanvasSnapshots } from "./chat/useCanvasSnapshots";
+import {
+  API_TYPE_IMAGE,
+  API_TYPE_TEXT,
+  normalizeOptionalNonNegativeNumber,
+  resolveConfigId,
+  requiresReferenceImage,
+  supportsReferenceImageEditing,
+  useApiConfigs
+} from "./chat/useApiConfigs";
+import { useInviteAuth } from "./chat/useInviteAuth";
+import { useModuleSelection } from "./chat/useModuleSelection";
+import { useImageViewer } from "./chat/useImageViewer";
+import { useMarkdownActions } from "./chat/useMarkdownActions";
+import { useCanvasPersistence } from "./chat/useCanvasPersistence";
+import { useModuleDeletion } from "./chat/useModuleDeletion";
+import {
+  DEFAULT_IMAGE_ASPECT_RATIO,
+  DEFAULT_IMAGE_BATCH_COUNT,
+  DEFAULT_IMAGE_PROMPT,
+  DEFAULT_IMAGE_QUALITY,
+  DEFAULT_MARKDOWN_PROMPT,
+  IMAGE_ASPECT_RATIO_OPTIONS,
+  IMAGE_BATCH_MAX,
+  IMAGE_BATCH_MIN,
+  IMAGE_MODE,
+  IMAGE_QUALITY_OPTIONS,
+  TEXT_MODE,
+  normalizeGenerationMode,
+  normalizeImageAspectRatio,
+  normalizeImageBatchCount,
+  normalizeImageQuality
+} from "./chat/generationOptions";
+import { createSnapshotRestoreHelpers } from "./chat/snapshotRestore";
+import { createUsageCostHelpers, formatTokenUsage } from "./chat/usageCost";
+import {
+  collectModelsInRect as collectModelsInRectUtil,
+  computeNextTopicStartX as computeNextTopicStartXUtil,
+  ensureTopicVisible as ensureTopicVisibleUtil,
+  getModelCardBounds as getModelCardBoundsUtil
+} from "./chat/graphUtils";
+import {
+  buildContextChipTitle,
+  buildPromptWithSelectedContexts as buildPromptWithSelectedContextsUtil,
+  buildSelectedModelSections as buildSelectedModelSectionsUtil,
+  clampScale,
+  clientToLayerPoint as clientToLayerPointUtil,
+  formatNowTimeText,
+  getCanvasViewportPoint as getCanvasViewportPointUtil,
+  getCurrentTouchPair as getCurrentTouchPairUtil,
+  getDefaultPosition as getDefaultPositionUtil,
+  getSafeScale,
+  getTouchDistance,
+  getTouchMidpoint,
+  intersectsRect,
+  nodeStyleByLayout,
+  normalizeRect,
+  normalizeWheelDelta,
+  questionNodeStyle,
+  summaryBlockStyle
+} from "./chat/viewUtils";
 
-const DEFAULT_MARKDOWN_PROMPT = "展示md的所有常见语法";
+// Maintainer note:
+// This page is still the product coordinator for auth, canvas history, API configs,
+// image references, streaming, and graph layout. Keep new low-level behavior in
+// ./chat helpers where possible, and use docs/CODEBASE_MAP.md when orienting.
 
 const prompt = ref(DEFAULT_MARKDOWN_PROMPT);
-const loading = ref(false);
-const configDialogVisible = ref(false);
+const generationMode = ref(TEXT_MODE);
+const imageBatchCount = ref(DEFAULT_IMAGE_BATCH_COUNT);
+const imageAspectRatio = ref(DEFAULT_IMAGE_ASPECT_RATIO);
+const imageQuality = ref(DEFAULT_IMAGE_QUALITY);
+const promptContexts = ref([]);
 const sidebarVisible = ref(false);
-const apiConfigs = ref([]);
+const historySidebarVisible = ref(false);
+const historySidebarPinned = ref(false);
 const lastSentPrompt = ref("");
 const inputCollapsed = ref(false);
 const sidebarPinned = ref(false);
-const inputPinned = ref(true);
 
 const stateMap = reactive({});
 const retryingMap = reactive({});
-const activeModelKeys = ref(new Set());
-let controller = null;
+const streamControllers = new Map();
 const retryControllers = new Map();
 const acceptIncomingEvents = ref(true);
-const dirtyModels = new Set();
 const STREAM_FLUSH_MS = 180;
-let flushTimer = null;
-let mathTypesetTimer = null;
-let sidebarCloseTimer = null;
-let inputPanelCloseTimer = null;
-let activeDragEl = null;
-let dragRafId = 0;
-let dragLatestClientX = 0;
-let dragLatestClientY = 0;
-let dragRenderX = 0;
-let dragRenderY = 0;
 const flowCanvasRef = ref(null);
 const dragGhostRef = ref(null);
+const historySidebarPanelRef = ref(null);
+const historySidebarPeekRef = ref(null);
 const sidebarPanelRef = ref(null);
 const sidebarPeekRef = ref(null);
-const FLOW_LAYOUT_STORAGE_KEY = "multi-chat-flow-layout-v1";
-const CHAT_UI_STORAGE_KEY = "multi-chat-ui-state-v1";
+const TOPIC_BASE_X = 120;
+const QUESTION_BASE_Y = 24;
+const RESULT_CARD_BASE_X = 20;
+const RESULT_CARD_BASE_Y = 220;
+const RESULT_CARD_WIDTH = 340;
+const RESULT_CARD_GAP_X = 20;
+const RESULT_CARD_STEP_X = RESULT_CARD_WIDTH + RESULT_CARD_GAP_X;
+const TOPIC_GROUP_GAP = 180;
+const FOLLOW_UP_QUESTION_GAP_Y = 28;
+const QUESTION_TO_RESULT_GAP_Y = 92;
+const MIN_SAFE_CANVAS_SCALE = 1e-12;
+const MAX_CANVAS_SCALE = 2.4;
 let flowTopZ = 1;
-const flowLayoutCache = ref({});
+const promptContextSeq = ref(1);
 const nodeLayoutMap = reactive({});
-const questionNode = reactive({
-  text: "",
-  timeText: "",
-  x: 360,
-  y: 24,
-  width: 520,
-  height: 104
-});
+const questionNodes = ref([]);
+const canvasScale = ref(1);
+let topicSeq = 1;
+let historySidebarCloseTimer = null;
 
+// Interaction state: dragging/panning/touch state is owned by canvasInteractionManager.
 const dragState = reactive({
   active: false,
   model: ""
@@ -325,7 +370,16 @@ const panState = reactive({
   startX: 0,
   startY: 0,
   originX: 0,
-  originY: 0
+  originY: 0,
+  allowPinch: true
+});
+const activeTouchPoints = new Map();
+const pinchState = reactive({
+  active: false,
+  startDistance: 0,
+  startScale: 1,
+  anchorWorldX: 0,
+  anchorWorldY: 0
 });
 
 const summaryBlocks = ref([]);
@@ -341,6 +395,7 @@ const summaryControllers = new Map();
 let summaryBlockSeq = 1;
 const questionDragState = reactive({
   active: false,
+  questionId: "",
   pointerId: null,
   startX: 0,
   startY: 0,
@@ -353,12 +408,18 @@ const canvasOffset = reactive({
   y: 0
 });
 
-const flowCanvasStyle = computed(() => ({
-  backgroundPosition: `${Math.round(canvasOffset.x)}px ${Math.round(canvasOffset.y)}px`
-}));
+const flowCanvasStyle = computed(() => {
+  const safeScale = Math.max(MIN_SAFE_CANVAS_SCALE, canvasScale.value);
+  const gridSize = Math.max(2, Math.round(24 * Math.max(safeScale, 0.06)));
+  return {
+    backgroundPosition: `${Math.round(canvasOffset.x)}px ${Math.round(canvasOffset.y)}px`,
+    backgroundSize: `${gridSize}px ${gridSize}px`
+  };
+});
 
 const flowLayerStyle = computed(() => ({
-  transform: `translate3d(${Math.round(canvasOffset.x)}px, ${Math.round(canvasOffset.y)}px, 0)`
+  transform: `translate3d(${Math.round(canvasOffset.x)}px, ${Math.round(canvasOffset.y)}px, 0) scale(${canvasScale.value})`,
+  transformOrigin: "0 0"
 }));
 
 const summaryDraftStyle = computed(() => {
@@ -382,538 +443,100 @@ const dragGhostStyle = computed(() => ({
 }));
 
 const modelList = computed(() => Object.values(stateMap));
-const showQuestionNode = computed(() => Boolean((questionNode.text || "").trim()));
-const questionNodeStyle = computed(() => ({
-  transform: `translate3d(${Math.round(questionNode.x)}px, ${Math.round(questionNode.y)}px, 0)`,
-  width: `${Math.round(questionNode.width)}px`,
-  minHeight: `${Math.round(questionNode.height)}px`
-}));
+
+// Side panels and auth state are owned by useInviteAuth.
+
+function buildConnectionPath(startX, startY, endX, endY) {
+  const safeStartX = Math.round(startX);
+  const safeStartY = Math.round(startY);
+  const safeEndX = Math.round(endX);
+  const safeEndY = Math.round(endY);
+  const verticalGap = Math.max(24, Math.abs(safeEndY - safeStartY) * 0.5);
+  const ctrlStartY = Math.round(safeStartY + verticalGap);
+  const ctrlEndY = Math.round(safeEndY - verticalGap);
+  return `M ${safeStartX} ${safeStartY} C ${safeStartX} ${ctrlStartY}, ${safeEndX} ${ctrlEndY}, ${safeEndX} ${safeEndY}`;
+}
+
 const questionConnections = computed(() => {
-  if (!showQuestionNode.value) {
+  if (!questionNodes.value.length) {
     return [];
   }
-  const startX = questionNode.x + questionNode.width / 2;
-  const startY = questionNode.y + questionNode.height;
-  return modelList.value
-    .map((item) => {
-      const layout = nodeLayoutMap[item.model];
-      if (!layout) {
+  return questionNodes.value.flatMap((question) => {
+    const startX = question.x + question.width / 2;
+    const startY = question.y + question.height;
+    return modelList.value
+      .filter((item) => item.questionId === question.id)
+      .map((item) => {
+        const layout = nodeLayoutMap[item.model];
+        if (!layout) {
+          return null;
+        }
+        const escapedModel = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(item.model) : item.model.replace(/"/g, '\\"');
+        const cardEl = flowCanvasRef.value?.querySelector?.(`.flow-node[data-model="${escapedModel}"]`);
+        const cardWidth = cardEl?.offsetWidth || 340;
+        const endX = layout.x + cardWidth / 2;
+        const endY = layout.y;
+        const path = buildConnectionPath(startX, startY, endX, endY);
+        return { key: `${question.id}-${item.model}`, path };
+      })
+      .filter(Boolean);
+  });
+});
+
+const followUpConnections = computed(() => {
+  if (!questionNodes.value.length) {
+    return [];
+  }
+
+  return questionNodes.value
+    .map((question) => {
+      const parentModelKey = String(question.parentModelKey || "").trim();
+      if (!parentModelKey) {
         return null;
       }
-      const escapedModel = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(item.model) : item.model.replace(/"/g, '\\"');
-      const cardEl = flowCanvasRef.value?.querySelector?.(`.flow-node[data-model="${escapedModel}"]`);
-      const cardWidth = cardEl?.offsetWidth || 340;
-      const endX = layout.x + cardWidth / 2;
-      const endY = layout.y;
-      const ctrlY = Math.round((startY + endY) / 2);
-      const path = `M ${Math.round(startX)} ${Math.round(startY)} C ${Math.round(startX)} ${ctrlY}, ${Math.round(endX)} ${ctrlY}, ${Math.round(endX)} ${Math.round(endY)}`;
-      return { key: item.model, path };
+      const parentBounds = getModelCardBounds(parentModelKey);
+      if (!parentBounds) {
+        return null;
+      }
+      const startX = parentBounds.x + parentBounds.width / 2;
+      const startY = parentBounds.y + parentBounds.height;
+      const endX = question.x + question.width / 2;
+      const endY = question.y;
+      return {
+        key: `${question.id}-${parentModelKey}`,
+        path: buildConnectionPath(startX, startY, endX, endY)
+      };
     })
     .filter(Boolean);
 });
 
-const markdown = new MarkdownIt({
-  html: true,
-  linkify: true,
-  breaks: true
-});
-
-function parseModelTag(rawModelTag) {
-  const text = (rawModelTag || "").trim();
-  const sep = text.lastIndexOf("||");
-  if (sep <= 0 || sep >= text.length - 2) {
-    return { key: text, title: text };
-  }
-  return {
-    key: text,
-    title: text.slice(0, sep)
-  };
-}
-
-function buildModelTagFromConfig(cfg) {
-  const title = (cfg?.name || "").trim() || cfg?.modelName || "Unknown";
-  const id = (cfg?.id || "").trim();
-  if (!id) {
-    return title;
-  }
-  return `${title}||${id}`;
-}
-
-function renderCodeBlock(code, info) {
-  const normalizedCode = (code || "").replace(/\n$/, "");
-  const rawLang = (info || "").trim().split(/\s+/)[0] || "text";
-  const normalizedLang = rawLang.toLowerCase();
-  const langClass = normalizedLang.replace(/[^a-z0-9_+-]/g, "") || "text";
-  const langLabel = markdown.utils.escapeHtml(normalizedLang);
-  const highlighted = hljs.getLanguage(normalizedLang)
-    ? hljs.highlight(normalizedCode, { language: normalizedLang }).value
-    : markdown.utils.escapeHtml(normalizedCode);
-
-  return `<div class="code-block">
-<div class="code-toolbar">
-<span class="code-lang">${langLabel}</span>
-<button type="button" class="code-copy-btn" aria-label="Copy code">复制</button>
-</div>
-<pre><code class="hljs language-${langClass}">${highlighted}</code></pre>
-</div>`;
-}
-
-markdown.renderer.rules.fence = (tokens, idx) => {
-  const token = tokens[idx];
-  return renderCodeBlock(token.content, token.info);
-};
-
-markdown.renderer.rules.table_open = () => '<div class="table-scroll"><table>';
-markdown.renderer.rules.table_close = () => "</table></div>";
-
-function normalizeBreakTags(text) {
-  return (text || "").replace(/<br\s*\/?>/gi, "\n");
-}
-
-const ALLOWED_HTML_TAGS = new Set([
-  "a",
-  "blockquote",
-  "br",
-  "button",
-  "code",
-  "del",
-  "details",
-  "div",
-  "em",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "hr",
-  "i",
-  "img",
-  "input",
-  "li",
-  "ol",
-  "p",
-  "pre",
-  "span",
-  "strong",
-  "sub",
-  "summary",
-  "sup",
-  "table",
-  "tbody",
-  "td",
-  "th",
-  "thead",
-  "tr",
-  "u",
-  "ul"
-]);
-
-const BLOCKED_HTML_TAGS = new Set(["script", "style", "iframe", "object", "embed", "link", "meta"]);
-const GLOBAL_ALLOWED_ATTRS = new Set(["class", "title", "role", "aria-label", "aria-hidden"]);
-const TAG_ALLOWED_ATTRS = {
-  a: new Set(["href", "target", "rel"]),
-  img: new Set(["src", "alt", "width", "height", "loading"]),
-  input: new Set(["type", "checked", "disabled"]),
-  button: new Set(["type"]),
-  details: new Set(["open"]),
-  code: new Set(["class"]),
-  span: new Set(["class"]),
-  div: new Set(["class"]),
-  pre: new Set(["class"])
-};
-
-function isSafeUrl(value) {
-  const raw = (value || "").trim().toLowerCase();
-  if (!raw) {
-    return false;
-  }
-  if (
-    raw.startsWith("javascript:") ||
-    raw.startsWith("vbscript:") ||
-    raw.startsWith("data:") ||
-    raw.startsWith("file:")
-  ) {
-    return false;
-  }
-  return (
-    raw.startsWith("http://") ||
-    raw.startsWith("https://") ||
-    raw.startsWith("mailto:") ||
-    raw.startsWith("tel:") ||
-    raw.startsWith("/") ||
-    raw.startsWith("./") ||
-    raw.startsWith("../") ||
-    raw.startsWith("#")
-  );
-}
-
-function sanitizeRenderedHtml(html) {
-  if (typeof window === "undefined" || typeof DOMParser === "undefined") {
-    return html;
-  }
-
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(`<div>${html || ""}</div>`, "text/html");
-  const root = doc.body.firstElementChild;
-  if (!root) {
-    return html;
-  }
-
-  sanitizeElementTree(root);
-  return root.innerHTML;
-}
-
-function sanitizeElementTree(root) {
-  Array.from(root.children).forEach((child) => sanitizeElementNode(child));
-}
-
-function sanitizeElementNode(el) {
-  if (!(el instanceof Element)) {
-    return;
-  }
-
-  const tag = el.tagName.toLowerCase();
-
-  if (BLOCKED_HTML_TAGS.has(tag)) {
-    el.remove();
-    return;
-  }
-
-  if (!ALLOWED_HTML_TAGS.has(tag)) {
-    const parent = el.parentNode;
-    if (!parent) {
-      el.remove();
-      return;
-    }
-
-    const childElements = Array.from(el.children);
-    const fragment = document.createDocumentFragment();
-    while (el.firstChild) {
-      fragment.appendChild(el.firstChild);
-    }
-    parent.replaceChild(fragment, el);
-    childElements.forEach((child) => sanitizeElementNode(child));
-    return;
-  }
-
-  sanitizeElementAttributes(el, tag);
-  Array.from(el.children).forEach((child) => sanitizeElementNode(child));
-}
-
-function sanitizeElementAttributes(el, tag) {
-  const attrs = Array.from(el.attributes);
-  const tagAllowed = TAG_ALLOWED_ATTRS[tag] || new Set();
-
-  attrs.forEach((attr) => {
-    const name = attr.name.toLowerCase();
-    const value = attr.value || "";
-
-    if (name.startsWith("on")) {
-      el.removeAttribute(attr.name);
-      return;
-    }
-
-    const isAllowed = GLOBAL_ALLOWED_ATTRS.has(name) || tagAllowed.has(name);
-    if (!isAllowed) {
-      el.removeAttribute(attr.name);
-      return;
-    }
-
-    if ((name === "href" || name === "src") && !isSafeUrl(value)) {
-      el.removeAttribute(attr.name);
-      return;
-    }
-
-    if (tag === "a" && name === "target" && value === "_blank") {
-      const currentRel = (el.getAttribute("rel") || "").trim();
-      const relSet = new Set(currentRel ? currentRel.split(/\s+/) : []);
-      relSet.add("noopener");
-      relSet.add("noreferrer");
-      el.setAttribute("rel", Array.from(relSet).join(" "));
-    }
-  });
-}
-
-function extractMathSegments(text) {
-  const segments = [];
-  let output = "";
-  let i = 0;
-
-  while (i < text.length) {
-    const ch = text[i];
-
-    if (ch === "\\") {
-      output += text.slice(i, i + 2);
-      i += 2;
-      continue;
-    }
-
-    if (ch === "$") {
-      const isDisplay = text[i + 1] === "$";
-      const delimiterLength = isDisplay ? 2 : 1;
-      let j = i + delimiterLength;
-      let end = -1;
-
-      while (j < text.length) {
-        if (text[j] === "\\") {
-          j += 2;
-          continue;
-        }
-
-        if (isDisplay) {
-          if (text[j] === "$" && text[j + 1] === "$") {
-            end = j;
-            break;
-          }
-        } else if (text[j] === "$") {
-          end = j;
-          break;
-        }
-        j += 1;
-      }
-
-      if (end !== -1) {
-        const tex = text.slice(i + delimiterLength, end);
-        const token = `@@MATH_${segments.length}@@`;
-        segments.push({ tex, display: isDisplay });
-        output += token;
-        i = end + delimiterLength;
-        continue;
-      }
-    }
-
-    output += ch;
-    i += 1;
-  }
-
-  return { text: output, segments };
-}
-
-function restoreMathSegments(html, segments) {
-  if (!segments.length) {
-    return html;
-  }
-
-  return html.replace(/@@MATH_(\d+)@@/g, (raw, index) => {
-    const segment = segments[Number(index)];
-    if (!segment) {
-      return raw;
-    }
-
-    const tex = segment.display ? normalizeDisplayMathTex(segment.tex) : segment.tex;
-    const escapedTex = markdown.utils.escapeHtml(tex);
-    if (segment.display) {
-      return `<div class="math-block">\\[${escapedTex}\\]</div>`;
-    }
-    return `<span class="math-inline">\\(${escapedTex}\\)</span>`;
-  });
-}
-
-function normalizeDisplayMathTex(tex) {
-  const source = tex || "";
-  const lines = source
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length <= 1) {
-    return source;
-  }
-
-  // Keep original content if user already uses TeX environments or explicit line breaks.
-  if (/\\\\|\\begin\s*\{[^}]+\}/.test(source)) {
-    return source;
-  }
-
-  return `\\begin{aligned}\n${lines.join(" \\\\\n")}\n\\end{aligned}`;
-}
-
-function enhanceTaskListHtml(html) {
-  if (!html || html.indexOf("<li>") === -1) {
-    return html;
-  }
-
-  const withTaskItems = html.replace(/<li>\s*\[( |x|X)\]\s*/g, (_, marker) => {
-    const checked = String(marker).toLowerCase() === "x" ? " checked" : "";
-    return `<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox"${checked} disabled> `;
-  });
-
-  return withTaskItems.replace(/<ul>\s*(?=<li class="task-list-item")/g, '<ul class="contains-task-list">');
-}
-
-function renderMarkdownPreservingMath(source) {
-  const normalized = normalizeBreakTags(source);
-  const { text, segments } = extractMathSegments(normalized);
-  const rendered = markdown.render(text);
-  const withTasks = enhanceTaskListHtml(rendered);
-  const withMath = restoreMathSegments(withTasks, segments);
-  return sanitizeRenderedHtml(withMath);
-}
-
-function stripThinkingBlocks(text) {
-  if (!text) {
-    return "";
-  }
-
-  const thinkingBlockRegex =
-    /<think>[\s\S]*?<\/think>|<thinking>[\s\S]*?<\/thinking>|```thinking\s*[\s\S]*?```|```thoughts?\s*[\s\S]*?```/gi;
-
-  const withoutThinking = text.replace(thinkingBlockRegex, "");
-
-  return withoutThinking
-    .replace(/^\s*(?:or|或者)\s*$/gim, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function renderMarkdownWithCollapsibleThinking(text) {
-  const source = normalizeBreakTags(text);
-  const thinkingBlockRegex =
-    /<think>([\s\S]*?)<\/think>|<thinking>([\s\S]*?)<\/thinking>|```thinking\s*([\s\S]*?)```|```thoughts?\s*([\s\S]*?)```/gi;
-
-  const blocks = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = thinkingBlockRegex.exec(source)) !== null) {
-    const plainPart = source.slice(lastIndex, match.index);
-    if (plainPart.trim()) {
-      blocks.push({ type: "plain", content: plainPart });
-    }
-
-    const thinkingPart = (match[1] || match[2] || match[3] || match[4] || "").trim();
-    if (thinkingPart) {
-      blocks.push({ type: "thinking", content: thinkingPart });
-    }
-
-    lastIndex = thinkingBlockRegex.lastIndex;
-  }
-
-  const tail = source.slice(lastIndex);
-  if (tail.trim()) {
-    blocks.push({ type: "plain", content: tail });
-  }
-
-  if (blocks.length === 0) {
-    return renderMarkdownPreservingMath(source);
-  }
-
-  return blocks
-    .map((block) => {
-      if (block.type === "plain") {
-        return renderMarkdownPreservingMath(block.content);
-      }
-
-      return `<details class="thought-block">
-<summary>思考过程（点击展开）</summary>
-<div class="thought-content">${renderMarkdownPreservingMath(block.content)}</div>
-</details>`;
-    })
-    .join("");
-}
-
-function renderStreamingText(text) {
-  const escaped = markdown.utils.escapeHtml(text || "");
-  if (!escaped) {
-    return `<p class="stream-placeholder">等待输出...</p>`;
-  }
-  return `<div class="stream-plain">${escaped.replace(/\n/g, "<br>")}</div>`;
-}
-
-function renderStreamingMarkdown(text) {
-  if (!text) {
-    return renderStreamingText("");
-  }
-  try {
-    const rendered = renderMarkdownWithCollapsibleThinking(text);
-    if (rendered && rendered.trim()) {
-      return rendered;
-    }
-  } catch {
-    // Fallback to escaped plain text when markdown cannot be incrementally parsed.
-  }
-  return renderStreamingText(text);
-}
-
-function buildRenderedContent(item) {
-  if (item.error) {
-    const renderedError = renderMarkdownWithCollapsibleThinking(`**Error:** ${item.error}`);
-    return renderedError || renderMarkdownPreservingMath("**Error:** 未知错误");
-  }
-  if (!item.done) {
-    return renderStreamingMarkdown(item.content);
-  }
-  if (!item.content) {
-    return renderMarkdownWithCollapsibleThinking("_模型未返回文本，请检查 API/模型配置_");
-  }
-  const rendered = renderMarkdownWithCollapsibleThinking(item.content);
-  if (rendered) {
-    return rendered;
-  }
-  return renderMarkdownWithCollapsibleThinking("_模型未返回可展示内容（已隐藏思考过程）_");
-}
-
-function loadFlowLayout() {
-  return {};
-}
-
-function saveChatUiState() {
-  return;
-}
-
-function restoreChatUiState() {
-  return;
-}
-
-function clearChatUiStateStorage() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.removeItem(CHAT_UI_STORAGE_KEY);
-}
-
-function clearFlowLayoutStorage() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.removeItem(FLOW_LAYOUT_STORAGE_KEY);
-}
-
-function saveFlowLayout() {
-  const map = {};
-  Object.keys(nodeLayoutMap).forEach((model) => {
-    const layout = nodeLayoutMap[model];
-    if (!layout) {
-      return;
-    }
-    map[model] = { x: layout.x, y: layout.y };
-  });
-  flowLayoutCache.value = map;
-}
+// Snapshot network operations and autosave scheduling are owned by useCanvasSnapshots.
 
 function getDefaultPosition(index) {
-  const safeIndex = Number.isFinite(index) ? index : 0;
-  const col = safeIndex % 3;
-  const row = Math.floor(safeIndex / 3);
-  return {
-    x: 20 + col * 360,
-    y: 220 + row * 280
-  };
+  return getDefaultPositionUtil(index, {
+    baseX: RESULT_CARD_BASE_X,
+    stepX: RESULT_CARD_STEP_X,
+    baseY: RESULT_CARD_BASE_Y
+  });
 }
 
-function setQuestionNodeContent(text) {
-  questionNode.text = (text || "").trim();
-  if (!questionNode.text) {
-    questionNode.timeText = "";
-    return;
-  }
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  questionNode.timeText = `${mm}-${dd} ${hh}:${min}`;
+// API config sidebar state is owned by useApiConfigs.
+
+// Reference image state is owned by useImageInputs. Keep request-shaping helpers imported above.
+function findQuestionNodeById(questionId) {
+  return questionNodes.value.find((item) => item.id === questionId);
+}
+
+// Graph node creation, layout, and cost display.
+function computeNextTopicStartX() {
+  return computeNextTopicStartXUtil(
+    questionNodes.value,
+    modelList.value,
+    nodeLayoutMap,
+    RESULT_CARD_WIDTH,
+    RESULT_CARD_BASE_X,
+    TOPIC_GROUP_GAP
+  );
 }
 
 function pickInitialPosition(model, index) {
@@ -938,247 +561,427 @@ function ensureNodeLayout(model, index = 0) {
   return nodeLayoutMap[model];
 }
 
-function createModelState(model, index = 0) {
-  const parsedTag = parseModelTag(model);
-  const modelKey = parsedTag.key || model;
-  ensureNodeLayout(modelKey, index);
-  return {
-    model: modelKey,
-    title: parsedTag.title || modelKey,
-    content: "",
-    pendingDelta: "",
-    renderedHtml: renderStreamingMarkdown(""),
-    done: false,
-    error: ""
-  };
-}
+const {
+  createModelState,
+  createQuestionNode
+} = createChatNodeFactory({
+  allocateTopicId: () => `topic-${topicSeq++}`,
+  ensureNodeLayout,
+  formatNowTimeText,
+  normalizeGenerationMode,
+  normalizeImageAspectRatio,
+  normalizeImageBatchCount,
+  normalizeImageQuality,
+  normalizeOptionalNonNegativeNumber,
+  parseModelTag,
+  renderStreamingMarkdown,
+  topicBaseX: TOPIC_BASE_X,
+  questionBaseY: QUESTION_BASE_Y
+});
 
 function nodeStyle(item) {
-  const layout = nodeLayoutMap[item.model];
-  if (!layout) {
-    return {
-      transform: "translate3d(0px, 0px, 0)",
-      zIndex: 1
-    };
-  }
-  return {
-    transform: `translate3d(${layout.x}px, ${layout.y}px, 0)`,
-    zIndex: layout.z
-  };
+  return nodeStyleByLayout(nodeLayoutMap[item.model]);
 }
 
-function summaryBlockStyle(block) {
-  return {
-    transform: `translate3d(${Math.round(block.x)}px, ${Math.round(block.y)}px, 0)`,
-    width: `${Math.round(block.width)}px`,
-    minHeight: `${Math.round(block.height)}px`,
-    zIndex: 999
-  };
+function clampCanvasScale(value) {
+  return clampScale(value, {
+    fallback: canvasScale.value,
+    min: MIN_SAFE_CANVAS_SCALE,
+    max: MAX_CANVAS_SCALE
+  });
 }
 
-function normalizeRect(x1, y1, x2, y2) {
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  const width = Math.abs(x2 - x1);
-  const height = Math.abs(y2 - y1);
-  return { x, y, width, height };
+function getSafeCanvasScale() {
+  return getSafeScale(canvasScale.value, MIN_SAFE_CANVAS_SCALE);
+}
+
+function getCanvasViewportPoint(clientX, clientY) {
+  return getCanvasViewportPointUtil(flowCanvasRef.value, clientX, clientY);
+}
+
+function getCurrentTouchPair() {
+  return getCurrentTouchPairUtil(activeTouchPoints);
 }
 
 function clientToLayerPoint(clientX, clientY) {
-  const canvas = flowCanvasRef.value;
-  if (!canvas) {
-    return { x: 0, y: 0 };
-  }
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: clientX - rect.left - canvasOffset.x,
-    y: clientY - rect.top - canvasOffset.y
-  };
-}
-
-function intersectsRect(a, b) {
-  return !(
-    a.x + a.width < b.x ||
-    b.x + b.width < a.x ||
-    a.y + a.height < b.y ||
-    b.y + b.height < a.y
+  return clientToLayerPointUtil(
+    flowCanvasRef.value,
+    clientX,
+    clientY,
+    canvasOffset,
+    canvasScale.value,
+    MIN_SAFE_CANVAS_SCALE
   );
 }
 
 function getModelCardBounds(model) {
-  const layout = nodeLayoutMap[model];
-  if (!layout) {
-    return null;
-  }
-  const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(model) : model.replace(/"/g, '\\"');
-  const cardEl = flowCanvasRef.value?.querySelector?.(`.flow-node[data-model="${escaped}"]`);
-  return {
-    x: layout.x,
-    y: layout.y,
-    width: cardEl?.offsetWidth || 340,
-    height: cardEl?.offsetHeight || 260
-  };
-}
-
-function collectModelsInRect(rect) {
-  return modelList.value
-    .map((item) => item.model)
-    .filter((model) => {
-      const bounds = getModelCardBounds(model);
-      if (!bounds) {
-        return false;
-      }
-      return intersectsRect(rect, bounds);
-    });
-}
-
-function refreshSummarySelection(block) {
-  const rect = { x: block.x, y: block.y, width: block.width, height: block.height };
-  block.selectedModels = collectModelsInRect(rect);
-}
-
-function removeSummaryBlock(blockId) {
-  const existing = summaryControllers.get(blockId);
-  if (existing) {
-    existing.abort();
-    summaryControllers.delete(blockId);
-  }
-  summaryBlocks.value = summaryBlocks.value.filter((item) => item.id !== blockId);
-}
-
-function startSummaryDraft(event) {
-  const point = clientToLayerPoint(event.clientX, event.clientY);
-  summaryCreateState.active = true;
-  summaryCreateState.pointerId = event.pointerId;
-  summaryCreateState.startX = point.x;
-  summaryCreateState.startY = point.y;
-  summaryCreateState.currentX = point.x;
-  summaryCreateState.currentY = point.y;
-}
-
-function stopSummaryDraft() {
-  if (!summaryCreateState.active) {
-    return;
-  }
-  const rect = normalizeRect(
-    summaryCreateState.startX,
-    summaryCreateState.startY,
-    summaryCreateState.currentX,
-    summaryCreateState.currentY
-  );
-
-  summaryCreateState.active = false;
-  summaryCreateState.pointerId = null;
-
-  if (rect.width < 32 || rect.height < 32) {
-    return;
-  }
-
-  const selectedModels = collectModelsInRect(rect);
-  summaryBlocks.value.push({
-    id: `summary-${summaryBlockSeq++}`,
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height,
-    selectedModels,
-    instruction: "总结这些回答",
-    content: "",
-    renderedHtml: renderMarkdownPreservingMath("_等待总结输出..._"),
-    loading: false,
-    error: ""
+  return getModelCardBoundsUtil(model, nodeLayoutMap, flowCanvasRef.value, {
+    defaultWidth: 340,
+    defaultHeight: 260
   });
 }
 
-async function runSummaryBlock(block) {
-  if (!block || block.loading) {
-    return;
-  }
-
-  refreshSummarySelection(block);
-  if (!block.selectedModels.length) {
-    ElMessage.warning("总结块内没有命中的回答卡片");
-    return;
-  }
-
-  const enabled = apiConfigs.value.filter((cfg) => cfg.enabled);
-  if (!enabled.length) {
-    ElMessage.warning("请先配置并启用至少一个 API");
-    return;
-  }
-
-  const instruction = (block.instruction || "").trim() || "总结这些回答";
-  const sections = block.selectedModels
-    .map((modelKey) => {
-      const item = stateMap[modelKey];
-      if (!item || !item.content) {
-        return "";
-      }
-      return `### ${item.title || item.model}\n${item.content}`;
-    })
-    .filter(Boolean);
-
-  if (!sections.length) {
-    ElMessage.warning("命中卡片暂无可用文本");
-    return;
-  }
-
-  const payloadPrompt = `${instruction}
-
-请仅基于以下回答进行处理：
-
-${sections.join("\n\n---\n\n")}`;
-
-  const targetModel = buildModelTagFromConfig(enabled[0]);
-  const previousCtrl = summaryControllers.get(block.id);
-  if (previousCtrl) {
-    previousCtrl.abort();
-  }
-  const summaryCtrl = new AbortController();
-  summaryControllers.set(block.id, summaryCtrl);
-  block.loading = true;
-  block.error = "";
-  block.content = "";
-  block.renderedHtml = renderMarkdownPreservingMath("_总结中..._");
-
-  try {
-    await sendPromptStream(
-      "",
-      payloadPrompt,
-      (event) => {
-        const eventModel = parseModelTag(event?.model || "").key;
-        if (eventModel && eventModel !== parseModelTag(targetModel).key) {
-          return;
-        }
-        if (event.delta) {
-          block.content += event.delta;
-          block.renderedHtml = renderStreamingMarkdown(block.content);
-        }
-        if (event.error) {
-          block.error = event.error;
-        }
-      },
-      summaryCtrl.signal,
-      {
-        targetModels: [targetModel],
-        appendUserMessage: true
-      }
-    );
-    if (!block.error) {
-      block.renderedHtml = renderMarkdownWithCollapsibleThinking(block.content || "_模型未返回文本_");
-    }
-  } catch (error) {
-    if (error?.name !== "AbortError") {
-      block.error = error?.message || "总结失败";
-    }
-  } finally {
-    block.loading = false;
-    if (block.error) {
-      block.renderedHtml = renderMarkdownPreservingMath(`**Error:** ${block.error}`);
-    }
-    summaryControllers.delete(block.id);
-  }
+function collectModelsInRect(rect) {
+  return collectModelsInRectUtil(rect, modelList.value, getModelCardBounds, intersectsRect);
 }
+
+function buildSelectedModelSections(modelKeys) {
+  return buildSelectedModelSectionsUtil(modelKeys, stateMap);
+}
+
+function buildPromptWithSelectedContexts(basePrompt, contextItems = promptContexts.value) {
+  return buildPromptWithSelectedContextsUtil(basePrompt, contextItems);
+}
+
+function buildPromptWithAllConversationContexts(basePrompt) {
+  const currentPrompt = String(basePrompt || "").trim();
+  const blocks = [];
+
+  questionNodes.value.forEach((question, index) => {
+    const questionText = String(question?.text || "").trim();
+    const answers = modelList.value
+      .filter((item) => item.questionId === question.id)
+      .map((item) => {
+        const content = String(item?.content || "").trim();
+        if (!content) {
+          return "";
+        }
+        const title = String(item?.title || item?.model || "回答").trim() || "回答";
+        return `#### ${title}\n${content}`;
+      })
+      .filter(Boolean);
+
+    if (!questionText && answers.length === 0) {
+      return;
+    }
+
+    let block = `### 历史问题 ${index + 1}\n${questionText || "(空)"}`;
+    if (answers.length > 0) {
+      block += `\n\n${answers.join("\n\n")}`;
+    }
+    blocks.push(block);
+  });
+
+  if (blocks.length === 0) {
+    return currentPrompt;
+  }
+
+  const history = `以下是本会话里已有的全部问题与回答，请基于这些上下文继续回答：\n\n${blocks.join("\n\n---\n\n")}`;
+  if (!currentPrompt) {
+    return history;
+  }
+  return `${history}\n\n---\n\n### 当前问题\n${currentPrompt}`;
+}
+
+const {
+  openInputPanel,
+  toggleInputPanel,
+  openSidebar,
+  toggleSidebar,
+  onSidebarEnter,
+  onSidebarLeave,
+  onWindowMouseMoveForSidebar,
+  toggleSidebarPinned,
+  dispose: disposePanelVisibilityManager
+} = createPanelVisibilityManager({
+  sidebarVisible,
+  sidebarPinned,
+  inputCollapsed,
+  sidebarPanelRef,
+  sidebarPeekRef,
+  dragState,
+  panState,
+  questionDragState,
+  summaryCreateState,
+  saveChatUiState
+});
+
+const {
+  apiConfigs,
+  sidebarApiView,
+  sidebarConfigEditorVisible,
+  sidebarConfigSaving,
+  sidebarConfigDeleting,
+  sidebarConfigTogglePending,
+  sidebarEditingConfigId,
+  sidebarConfigForm,
+  textApiCount,
+  imageApiCount,
+  filteredApiConfigs,
+  sidebarApiViewLabel,
+  switchSidebarApiView,
+  syncSidebarApiViewWithGenerationMode,
+  loadConfigs,
+  onSidebarApiRowClick,
+  openSidebarCreateForm,
+  closeSidebarConfigEditor,
+  saveSidebarConfig,
+  deleteSidebarConfig,
+  onSidebarToggleConfig
+} = useApiConfigs({
+  normalizeGenerateCount
+});
+
+const {
+  formatQuestionTotalCostCny,
+  formatUsageCost
+} = createUsageCostHelpers({
+  apiConfigs,
+  modelList,
+  normalizeOptionalNonNegativeNumber,
+  questionNodes,
+  resolveConfigId,
+  stateMap
+});
+
+const {
+  authReady,
+  authDialogVisible,
+  authInviteCode,
+  authSubmitting,
+  authUserProfile,
+  authUserDisplayName,
+  requireInviteLogin,
+  handleInviteAuthFailure,
+  ensureAuthenticatedSession,
+  submitInviteLogin,
+  switchAccount,
+  onAuthExpired
+} = useInviteAuth({
+  resetWorkspaceForAccountSwitch,
+  bootstrapWorkspaceAfterAuth: async () => {
+    await Promise.all([loadConfigs(), loadCanvasSnapshots()]);
+  }
+});
+
+const {
+  imageInputRef,
+  selectedImageInputs,
+  selectedImageInput,
+  selectedImageSourceModel,
+  imagePreviewDragFromIndex,
+  imagePreviewDragOverIndex,
+  imageDropActive,
+  selectedImagePreviewList,
+  addSelectedImageInputPayloadList,
+  clearImagePreviewDragState,
+  onImagePreviewDragStart,
+  onImagePreviewDragEnter,
+  onImagePreviewDragOver,
+  onImagePreviewDrop,
+  onImagePreviewGridDragOver,
+  onImagePreviewGridDrop,
+  onImagePreviewDragEnd,
+  removeSelectedImageInput,
+  applyModelImageAsImageInput,
+  resetImageDragState,
+  onImageInputChange,
+  onImageDragEnter,
+  onImageDragOver,
+  onImageDragLeave,
+  onImageDrop,
+  onInputCardPaste,
+  clearImageInput
+} = useImageInputs({
+  generationMode,
+  imageMode: IMAGE_MODE,
+  normalizeGenerationMode,
+  saveChatUiState: () => saveChatUiState(),
+  openInputPanel,
+  stateMap
+});
+
+const {
+  flowLayoutCache,
+  loadFlowLayout,
+  saveChatUiState,
+  restoreChatUiState,
+  clearChatUiStateStorage,
+  clearFlowLayoutStorage,
+  saveFlowLayout,
+  cloneJson,
+  buildSnapshotTitleFromCanvas,
+  buildCanvasSnapshotPayload
+} = useCanvasPersistence({
+  prompt,
+  lastSentPrompt,
+  generationMode,
+  imageBatchCount,
+  imageAspectRatio,
+  imageQuality,
+  selectedImageInputs,
+  selectedImageInput,
+  selectedImageSourceModel,
+  promptContexts,
+  questionNodes,
+  modelList,
+  nodeLayoutMap,
+  summaryBlocks,
+  canvasOffset,
+  canvasScale,
+  normalizeGenerationMode,
+  normalizeImageBatchCount,
+  normalizeImageAspectRatio,
+  normalizeImageQuality,
+  cloneImageInputPayloadList,
+  getTopicSeq: () => topicSeq,
+  getSummaryBlockSeq: () => summaryBlockSeq,
+  getFlowTopZ: () => flowTopZ,
+  scheduleSnapshotAutoSave: () => scheduleSnapshotAutoSave()
+});
+
+const {
+  imageHover,
+  imageViewer,
+  hideImageHoverPreview,
+  handleImageHover,
+  handleImageClick,
+  closeImageViewer,
+  onImageViewerKeydown
+} = useImageViewer();
+
+const {
+  handleMarkdownAction
+} = useMarkdownActions({
+  ElMessage
+});
+
+const {
+  selectedModule,
+  moduleActionMenuRef,
+  isQuestionSelected,
+  isModelSelected,
+  selectQuestionModule,
+  selectModelModule,
+  onModelModuleClick,
+  clearSelectedModule,
+  canRetrySelectedModule,
+  selectedModuleRetrying,
+  showModuleActionMenu,
+  moduleActionMenuStyle,
+  retrySelectedModule,
+  updateModuleActionMenuDuringDrag
+} = useModuleSelection({
+  stateMap,
+  retryingMap,
+  streamControllers,
+  modelList,
+  prompt,
+  lastSentPrompt,
+  findQuestionNodeById,
+  getModelCardBounds,
+  regenerateModel,
+  regenerateQuestion,
+  applyModelImageAsImageInput
+});
+
+const {
+  cancelDeferredRestoreRendering,
+  restoreCanvasFromSnapshot
+} = createSnapshotRestoreHelpers({
+  acceptIncomingEvents,
+  abortAllStreams,
+  buildRenderedContent,
+  canvasOffset,
+  canvasScale,
+  clampCanvasScale,
+  clearModelStates,
+  clearSelectedModule,
+  createModelState,
+  defaultImageAspectRatio: DEFAULT_IMAGE_ASPECT_RATIO,
+  defaultImageQuality: DEFAULT_IMAGE_QUALITY,
+  defaultMarkdownPrompt: DEFAULT_MARKDOWN_PROMPT,
+  ensureNodeLayout,
+  formatNowTimeText,
+  generationMode,
+  getNextFlowTopZ: () => ++flowTopZ,
+  imageAspectRatio,
+  imageBatchCount,
+  imageQuality,
+  lastSentPrompt,
+  modelList,
+  nextTick,
+  nodeLayoutMap,
+  normalizeGenerationMode,
+  normalizeImageAspectRatio,
+  normalizeImageBatchCount,
+  normalizeImageQuality,
+  normalizeOptionalNonNegativeNumber,
+  prompt,
+  promptContexts,
+  questionBaseY: QUESTION_BASE_Y,
+  questionNodes,
+  renderStreamingMarkdown,
+  saveFlowLayout,
+  selectedImageInput,
+  selectedImageInputs,
+  selectedImageSourceModel,
+  setFlowTopZ: (value) => {
+    flowTopZ = value;
+  },
+  setSummaryBlockSeq: (value) => {
+    summaryBlockSeq = value;
+  },
+  setTopicSeq: (value) => {
+    topicSeq = value;
+  },
+  stateMap,
+  summaryBlocks,
+  topicBaseX: TOPIC_BASE_X
+});
+
+const {
+  canvasSnapshots,
+  snapshotLoading,
+  snapshotSaving,
+  snapshotRestoring,
+  activeCanvasSnapshotId,
+  activeCanvasSnapshotTitle,
+  loadCanvasSnapshots,
+  persistCanvasSnapshot,
+  cancelSnapshotAutoSave,
+  scheduleSnapshotAutoSave,
+  restoreCanvasSnapshot,
+  removeCanvasSnapshot,
+  createFreshCanvas
+} = useCanvasSnapshots({
+  buildSnapshotPayload: buildCanvasSnapshotPayload,
+  buildSnapshotTitle: buildSnapshotTitleFromCanvas,
+  restoreSnapshotPayload: restoreCanvasFromSnapshot,
+  hasSnapshotContent: () => questionNodes.value.length > 0 || modelList.value.length > 0,
+  clearCanvas: clear,
+  formatTime: formatSnapshotTime
+});
+
+const {
+  removePromptContext,
+  refreshSummarySelection,
+  removeSummaryBlock,
+  startSummaryDraft,
+  stopSummaryDraft,
+  runSummaryBlock
+} = createContextSummaryManager({
+  ElMessage,
+  stateMap,
+  apiConfigs,
+  promptContexts,
+  promptContextSeq,
+  summaryBlocks,
+  summaryControllers,
+  summaryCreateState,
+  openInputPanel,
+  collectModelsInRect,
+  clientToLayerPoint,
+  normalizeRect,
+  buildContextChipTitle,
+  buildSelectedModelSections,
+  buildModelTagFromConfig,
+  parseModelTag,
+  sendPromptStream,
+  renderMarkdownPreservingMath,
+  renderStreamingMarkdown,
+  renderMarkdownWithCollapsibleThinking
+});
 
 function bringToFront(layout) {
   if (!layout) {
@@ -1187,253 +990,86 @@ function bringToFront(layout) {
   layout.z = ++flowTopZ;
 }
 
-function onQuestionPointerDown(event) {
-  if (event.button !== 0) {
-    return;
-  }
-  questionDragState.active = true;
-  questionDragState.pointerId = event.pointerId;
-  questionDragState.startX = event.clientX;
-  questionDragState.startY = event.clientY;
-  questionDragState.originX = questionNode.x;
-  questionDragState.originY = questionNode.y;
-  if (event.currentTarget?.setPointerCapture) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-  event.stopPropagation();
-  event.preventDefault();
-}
+const {
+  onQuestionPointerDown,
+  onNodePointerDown,
+  onModelCardPointerDown,
+  onModelContentPointerDown,
+  onCanvasPointerDown,
+  onCanvasWheel,
+  onWindowPointerMove,
+  onWindowPointerUp,
+  stopDragging,
+  stopCanvasPanning,
+  stopQuestionDragging,
+  stopPinch,
+  dispose: disposeCanvasInteractionManager
+} = createCanvasInteractionManager({
+  nextTick,
+  stateMap,
+  nodeLayoutMap,
+  modelList,
+  canvasOffset,
+  canvasScale,
+  flowCanvasRef,
+  dragGhostRef,
+  dragState,
+  dragMeta,
+  dragGhost,
+  panState,
+  activeTouchPoints,
+  pinchState,
+  questionDragState,
+  summaryCreateState,
+  getSafeCanvasScale,
+  getCanvasViewportPoint,
+  getCurrentTouchPair,
+  getTouchDistance,
+  getTouchMidpoint,
+  clampCanvasScale,
+  clientToLayerPoint,
+  findQuestionNodeById,
+  isQuestionSelected,
+  selectQuestionModule,
+  selectModelModule,
+  clearSelectedModule,
+  startSummaryDraft,
+  stopSummaryDraft,
+  bringToFront,
+  saveFlowLayout,
+  updateModuleActionMenuDuringDrag,
+  normalizeWheelDelta
+});
 
-function onNodePointerDown(event, model) {
-  if (event.button !== 0) {
-    return;
-  }
-
-  const layout = nodeLayoutMap[model];
-  if (!layout) {
-    return;
-  }
-
-  bringToFront(layout);
-  dragState.active = true;
-  dragState.model = model;
-  dragMeta.pointerId = event.pointerId;
-  activeDragEl = event.currentTarget?.closest?.(".flow-node") || null;
-  dragMeta.startX = event.clientX;
-  dragMeta.startY = event.clientY;
-  dragMeta.originX = layout.x;
-  dragMeta.originY = layout.y;
-  dragMeta.width = activeDragEl?.offsetWidth || 340;
-  dragMeta.height = activeDragEl?.offsetHeight || 230;
-  dragLatestClientX = event.clientX;
-  dragLatestClientY = event.clientY;
-  dragRenderX = layout.x;
-  dragRenderY = layout.y;
-  dragGhost.active = true;
-  dragGhost.title = stateMap[model]?.title || model;
-  dragGhost.x = layout.x;
-  dragGhost.y = layout.y;
-  dragGhost.width = dragMeta.width;
-  dragGhost.height = dragMeta.height;
-  nextTick(() => {
-    const ghostEl = dragGhostRef.value;
-    if (ghostEl) {
-      ghostEl.style.willChange = "transform";
-      ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
-    }
-  });
-  if (event.currentTarget?.setPointerCapture) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-  event.stopPropagation();
-  event.preventDefault();
-}
-
-function onCanvasPointerDown(event) {
-  if (event.button !== 0 || dragState.active || summaryCreateState.active || questionDragState.active) {
-    return;
-  }
-
-  const target = event.target;
-  if (target instanceof Element && target.closest(".flow-node, .summary-block, .question-node")) {
-    return;
-  }
-
-  if (event.shiftKey) {
-    startSummaryDraft(event);
-  } else {
-    panState.active = true;
-    panState.pointerId = event.pointerId;
-    panState.startX = event.clientX;
-    panState.startY = event.clientY;
-    panState.originX = canvasOffset.x;
-    panState.originY = canvasOffset.y;
-  }
-  if (event.currentTarget?.setPointerCapture) {
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-  event.preventDefault();
-}
-
-function normalizeWheelDelta(delta, deltaMode) {
-  if (!Number.isFinite(delta)) {
-    return 0;
-  }
-  if (deltaMode === 1) {
-    return delta * 16;
-  }
-  if (deltaMode === 2) {
-    return delta * (typeof window !== "undefined" ? window.innerHeight : 800);
-  }
-  return delta;
-}
-
-function onCanvasWheel(event) {
-  if (event.ctrlKey) {
-    return;
-  }
-
-  const target = event.target;
-  if (target instanceof Element && target.closest(".code-block pre, .mjx-container")) {
-    return;
-  }
-
-  const deltaY = normalizeWheelDelta(event.deltaY, event.deltaMode);
-  if (!deltaY) {
-    return;
-  }
-
-  canvasOffset.y -= deltaY;
-  event.preventDefault();
-}
-
-function onWindowPointerMove(event) {
-  if (panState.active) {
-    if (panState.pointerId != null && event.pointerId !== panState.pointerId) {
-      return;
-    }
-
-    canvasOffset.x = panState.originX + (event.clientX - panState.startX);
-    canvasOffset.y = panState.originY + (event.clientY - panState.startY);
-    event.preventDefault();
-    return;
-  }
-
-  if (summaryCreateState.active) {
-    if (summaryCreateState.pointerId != null && event.pointerId !== summaryCreateState.pointerId) {
-      return;
-    }
-    const point = clientToLayerPoint(event.clientX, event.clientY);
-    summaryCreateState.currentX = point.x;
-    summaryCreateState.currentY = point.y;
-    event.preventDefault();
-    return;
-  }
-
-  if (questionDragState.active) {
-    if (questionDragState.pointerId != null && event.pointerId !== questionDragState.pointerId) {
-      return;
-    }
-    questionNode.x = Math.round(questionDragState.originX + (event.clientX - questionDragState.startX));
-    questionNode.y = Math.round(questionDragState.originY + (event.clientY - questionDragState.startY));
-    event.preventDefault();
-    return;
-  }
-
-  if (!dragState.active || !dragState.model) {
-    return;
-  }
-
-  if (dragMeta.pointerId != null && event.pointerId !== dragMeta.pointerId) {
-    return;
-  }
-
-  const layout = nodeLayoutMap[dragState.model];
-  if (!layout) {
-    return;
-  }
-
-  dragLatestClientX = event.clientX;
-  dragLatestClientY = event.clientY;
-
-  if (!dragRafId) {
-    dragRafId = window.requestAnimationFrame(() => {
-      dragRafId = 0;
-      dragRenderX = dragMeta.originX + (dragLatestClientX - dragMeta.startX);
-      dragRenderY = dragMeta.originY + (dragLatestClientY - dragMeta.startY);
-      const ghostEl = dragGhostRef.value;
-      if (ghostEl) {
-        ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
-      }
-    });
-  }
-}
-
-function stopDragging() {
-  if (!dragState.active) {
-    return;
-  }
-
-  if (dragRafId) {
-    window.cancelAnimationFrame(dragRafId);
-    dragRafId = 0;
-  }
-
-  if (dragState.model && nodeLayoutMap[dragState.model]) {
-    nodeLayoutMap[dragState.model].x = Math.round(dragRenderX);
-    nodeLayoutMap[dragState.model].y = Math.round(dragRenderY);
-  }
-
-  if (dragGhostRef.value) {
-    dragGhostRef.value.style.willChange = "auto";
-  }
-
-  dragGhost.active = false;
-  dragGhost.title = "";
-  dragState.active = false;
-  dragState.model = "";
-  dragMeta.pointerId = null;
-  dragMeta.startX = 0;
-  dragMeta.startY = 0;
-  dragMeta.originX = 0;
-  dragMeta.originY = 0;
-  dragLatestClientX = 0;
-  dragLatestClientY = 0;
-  dragRenderX = 0;
-  dragRenderY = 0;
-  dragGhost.x = 0;
-  dragGhost.y = 0;
-  activeDragEl = null;
-  saveFlowLayout();
-}
-
-function stopCanvasPanning() {
-  if (!panState.active) {
-    return;
-  }
-
-  panState.active = false;
-  panState.pointerId = null;
-}
-
-function stopQuestionDragging() {
-  if (!questionDragState.active) {
-    return;
-  }
-  questionDragState.active = false;
-  questionDragState.pointerId = null;
-}
-
-function onWindowPointerUp() {
-  stopSummaryDraft();
-  stopCanvasPanning();
-  stopQuestionDragging();
-  stopDragging();
-}
+const {
+  removeModelModules,
+  deleteQuestionModule,
+  deleteModelModule,
+  deleteSelectedModule
+} = useModuleDeletion({
+  stateMap,
+  retryingMap,
+  nodeLayoutMap,
+  retryControllers,
+  streamControllers,
+  summaryControllers,
+  promptContexts,
+  selectedImageSourceModel,
+  summaryBlocks,
+  questionNodes,
+  questionDragState,
+  modelList,
+  selectedModule,
+  stopQuestionDragging,
+  saveFlowLayout,
+  scheduleSnapshotAutoSave,
+  clearSelectedModule
+});
 
 function resetLayout() {
   canvasOffset.x = 0;
   canvasOffset.y = 0;
+  canvasScale.value = 1;
   modelList.value.forEach((item, index) => {
     const pos = getDefaultPosition(index);
     const layout = ensureNodeLayout(item.model, index);
@@ -1444,91 +1080,23 @@ function resetLayout() {
   saveFlowLayout();
 }
 
-function flushDirtyModels() {
-  if (dirtyModels.size === 0) {
-    return;
-  }
-
-  const models = Array.from(dirtyModels);
-  dirtyModels.clear();
-
-  models.forEach((model) => {
-    const item = stateMap[model];
-    if (!item) {
-      return;
-    }
-
-    if (item.pendingDelta) {
-      item.content += item.pendingDelta;
-      item.pendingDelta = "";
-    }
-
-    item.renderedHtml = buildRenderedContent(item);
-  });
-
-  saveChatUiState();
-  scheduleMathTypeset();
-}
-
-function flushDirtyModelsNow() {
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  flushDirtyModels();
-}
-
-function scheduleModelFlush(model) {
-  dirtyModels.add(model);
-
-  if (flushTimer) {
-    return;
-  }
-
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    flushDirtyModels();
-  }, STREAM_FLUSH_MS);
-}
-
-function scheduleMathTypeset() {
-  if (mathTypesetTimer) {
-    return;
-  }
-
-  mathTypesetTimer = setTimeout(() => {
-    mathTypesetTimer = null;
-    void typesetMath();
-  }, 80);
-}
-
-async function typesetMath() {
-  if (typeof window === "undefined" || !window.MathJax) {
-    return;
-  }
-
-  try {
-    if (window.MathJax.startup?.promise) {
-      await window.MathJax.startup.promise;
-    }
-    if (!window.MathJax.typesetPromise) {
-      return;
-    }
-
-    await nextTick();
-    const root = flowCanvasRef.value;
-    if (!root) {
-      return;
-    }
-
-    if (window.MathJax.typesetClear) {
-      window.MathJax.typesetClear([root]);
-    }
-    await window.MathJax.typesetPromise([root]);
-  } catch {
-    // Ignore math render failures to avoid blocking chat rendering.
-  }
-}
+const {
+  applyStreamEventToModel,
+  onStreamEvent,
+  flushDirtyModelsNow,
+  clearDirtyQueue,
+  dispose: disposeStreamOrchestrator
+} = createStreamOrchestrator({
+  stateMap,
+  retryingMap,
+  saveChatUiState,
+  buildRenderedContent,
+  flowCanvasRef,
+  nextTick,
+  parseModelTag,
+  acceptIncomingEvents,
+  flushIntervalMs: STREAM_FLUSH_MS
+});
 
 onMounted(async () => {
   flowLayoutCache.value = {};
@@ -1536,170 +1104,70 @@ onMounted(async () => {
   clearChatUiStateStorage();
   prompt.value = DEFAULT_MARKDOWN_PROMPT;
   lastSentPrompt.value = "";
-  setQuestionNodeContent("");
+  questionNodes.value = [];
   canvasOffset.x = 0;
   canvasOffset.y = 0;
+  canvasScale.value = 1;
+  activeTouchPoints.clear();
+  stopPinch();
   window.addEventListener("pointermove", onWindowPointerMove);
   window.addEventListener("pointerup", onWindowPointerUp);
   window.addEventListener("pointercancel", onWindowPointerUp);
   window.addEventListener("mousemove", onWindowMouseMoveForSidebar);
-  await loadConfigs();
+  window.addEventListener("mousemove", onWindowMouseMoveForHistorySidebar);
+  window.addEventListener("keydown", onImageViewerKeydown);
+  window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
+  const authenticated = await ensureAuthenticatedSession();
+  if (!authenticated) {
+    return;
+  }
+  await bootstrapWorkspaceAfterAuth();
 });
 
 onBeforeUnmount(() => {
+  cancelDeferredRestoreRendering();
+  cancelSnapshotAutoSave();
   window.removeEventListener("pointermove", onWindowPointerMove);
   window.removeEventListener("pointerup", onWindowPointerUp);
   window.removeEventListener("pointercancel", onWindowPointerUp);
   window.removeEventListener("mousemove", onWindowMouseMoveForSidebar);
-  clearSidebarCloseTimer();
-  clearInputPanelCloseTimer();
+  window.removeEventListener("mousemove", onWindowMouseMoveForHistorySidebar);
+  window.removeEventListener("keydown", onImageViewerKeydown);
+  window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
+  clearHistorySidebarCloseTimer();
+  disposePanelVisibilityManager();
   stopCanvasPanning();
+  activeTouchPoints.clear();
+  stopPinch();
   stopQuestionDragging();
   stopDragging();
+  disposeCanvasInteractionManager();
   abortAllStreams();
   summaryControllers.forEach((ctrl) => ctrl.abort());
   summaryControllers.clear();
-  if (mathTypesetTimer) {
-    clearTimeout(mathTypesetTimer);
-    mathTypesetTimer = null;
-  }
   flushDirtyModelsNow();
+  disposeStreamOrchestrator();
 });
 
-async function loadConfigs() {
-  try {
-    apiConfigs.value = await fetchConfigs();
-  } catch (error) {
-    ElMessage.error(error.message || "加载配置失败");
-  }
-}
+// API config network operations are owned by useApiConfigs.
 
-function openConfigDialog() {
-  configDialogVisible.value = true;
-}
-
-function onConfigSaved() {
-  loadConfigs();
-}
-
-function clearSidebarCloseTimer() {
-  if (sidebarCloseTimer) {
-    clearTimeout(sidebarCloseTimer);
-    sidebarCloseTimer = null;
-  }
-}
-
-function clearInputPanelCloseTimer() {
-  if (inputPanelCloseTimer) {
-    clearTimeout(inputPanelCloseTimer);
-    inputPanelCloseTimer = null;
-  }
-}
-
-function openInputPanel() {
-  clearInputPanelCloseTimer();
-  inputCollapsed.value = false;
-}
-
-function toggleInputPanel() {
-  clearInputPanelCloseTimer();
-  inputCollapsed.value = !inputCollapsed.value;
-  saveChatUiState();
-}
-
-function onInputPanelLeave() {
-  if (inputPinned.value) {
-    clearInputPanelCloseTimer();
-    return;
-  }
-  clearInputPanelCloseTimer();
-  inputPanelCloseTimer = setTimeout(() => {
-    inputCollapsed.value = true;
-    inputPanelCloseTimer = null;
-  }, 160);
-}
-
-function openSidebar() {
-  clearSidebarCloseTimer();
-  sidebarVisible.value = true;
-}
-
-function toggleSidebar() {
-  clearSidebarCloseTimer();
-  sidebarVisible.value = !sidebarVisible.value;
-  saveChatUiState();
-}
-
-function onSidebarEnter() {
-  openSidebar();
-}
-
-function onSidebarLeave() {
-  if (sidebarPinned.value) {
-    clearSidebarCloseTimer();
-    return;
-  }
-  if (sidebarCloseTimer) {
-    return;
-  }
-  sidebarCloseTimer = setTimeout(() => {
-    sidebarVisible.value = false;
-    sidebarCloseTimer = null;
-  }, 120);
-}
-
-function onWindowMouseMoveForSidebar(event) {
-  if (dragState.active || panState.active || questionDragState.active || summaryCreateState.active) {
-    return;
-  }
-  if (!sidebarVisible.value || sidebarPinned.value) {
-    return;
-  }
-
-  const target = event.target;
-  if (!(target instanceof Node)) {
-    onSidebarLeave();
-    return;
-  }
-
-  const panel = sidebarPanelRef.value;
-  const peek = sidebarPeekRef.value;
-  const insidePanel = panel ? panel.contains(target) : false;
-  const insidePeek = peek ? peek.contains(target) : false;
-
-  if (insidePanel || insidePeek) {
-    clearSidebarCloseTimer();
-    return;
-  }
-
-  onSidebarLeave();
-}
-
-function toggleSidebarPinned() {
-  sidebarPinned.value = !sidebarPinned.value;
-  if (sidebarPinned.value) {
-    clearSidebarCloseTimer();
-    sidebarVisible.value = true;
-  }
-  saveChatUiState();
-}
-
-function toggleInputPinned() {
-  inputPinned.value = !inputPinned.value;
-  if (inputPinned.value) {
-    clearInputPanelCloseTimer();
-    inputCollapsed.value = false;
-  }
-  saveChatUiState();
-}
-
+// Send/regenerate orchestration.
 function clearModelStates() {
+  cancelDeferredRestoreRendering();
   stopDragging();
+  stopCanvasPanning();
   stopQuestionDragging();
   stopSummaryDraft();
+  activeTouchPoints.clear();
+  stopPinch();
+  clearSelectedModule();
   flushDirtyModelsNow();
-  dirtyModels.clear();
-  activeModelKeys.value = new Set();
+  clearDirtyQueue();
+  questionNodes.value = [];
+  topicSeq = 1;
+  promptContexts.value = [];
+  promptContextSeq.value = 1;
+  selectedImageSourceModel.value = "";
   Object.keys(retryingMap).forEach((key) => delete retryingMap[key]);
   Object.keys(stateMap).forEach((key) => delete stateMap[key]);
   Object.keys(nodeLayoutMap).forEach((key) => delete nodeLayoutMap[key]);
@@ -1709,110 +1177,448 @@ function clearModelStates() {
   saveChatUiState();
 }
 
+function resetWorkspaceForAccountSwitch() {
+  acceptIncomingEvents.value = false;
+  abortAllStreams();
+  cancelSnapshotAutoSave();
+  clearModelStates();
+  clearImageInput();
+  prompt.value = DEFAULT_MARKDOWN_PROMPT;
+  generationMode.value = TEXT_MODE;
+  imageBatchCount.value = DEFAULT_IMAGE_BATCH_COUNT;
+  imageAspectRatio.value = DEFAULT_IMAGE_ASPECT_RATIO;
+  imageQuality.value = DEFAULT_IMAGE_QUALITY;
+  lastSentPrompt.value = "";
+  canvasOffset.x = 0;
+  canvasOffset.y = 0;
+  canvasScale.value = 1;
+  flowLayoutCache.value = {};
+  clearFlowLayoutStorage();
+  clearChatUiStateStorage();
+}
+
 function abortAllStreams() {
-  if (controller) {
-    controller.abort();
-    controller = null;
-  }
+  streamControllers.forEach((ctrl) => ctrl.abort());
+  streamControllers.clear();
 
   retryControllers.forEach((ctrl) => ctrl.abort());
   retryControllers.clear();
 }
 
-function initPanelsByEnabledConfigs() {
-  clearModelStates();
-  const keys = new Set();
-  apiConfigs.value
-    .filter((cfg) => cfg.enabled)
-    .forEach((cfg, index) => {
-      const modelTag = buildModelTagFromConfig(cfg);
-      keys.add(parseModelTag(modelTag).key);
-      stateMap[modelTag] = createModelState(modelTag, index);
-    });
-  activeModelKeys.value = keys;
+function appendPanelsForTopic(topicPrompt, fullPrompt, enabledConfigs, options = {}) {
+  const mode = normalizeGenerationMode(options.mode);
+  const imageCount = normalizeImageBatchCount(options.imageCount);
+  const imageAspectRatio = normalizeImageAspectRatio(options.imageAspectRatio);
+  const imageQuality = normalizeImageQuality(options.imageQuality);
+  const imageInputs = cloneImageInputPayloadList(options.imageInputs);
+  const imageInput = cloneImageInputPayload(options.imageInput) || cloneImageInputPayload(imageInputs[0]);
+  const parentModelKey = String(options.parentModelKey || "").trim();
+  const parentBounds = parentModelKey ? getModelCardBounds(parentModelKey) : null;
+  const parentCenterX = parentBounds ? parentBounds.x + parentBounds.width / 2 : NaN;
+  const totalPanelCount = enabledConfigs.reduce(
+    (sum, cfg) => sum + normalizeGenerateCount(cfg?.generateCount),
+    0
+  );
+  const questionY = parentBounds
+    ? Math.round(parentBounds.y + parentBounds.height + FOLLOW_UP_QUESTION_GAP_Y)
+    : QUESTION_BASE_Y;
+  let topicStartX = computeNextTopicStartX();
+  if (parentBounds && Number.isFinite(parentCenterX)) {
+    const totalCardsWidth = totalPanelCount > 0
+      ? totalPanelCount * RESULT_CARD_WIDTH + Math.max(0, totalPanelCount - 1) * RESULT_CARD_GAP_X
+      : RESULT_CARD_WIDTH;
+    topicStartX = Math.round(parentCenterX - totalCardsWidth / 2);
+  }
+  const question = createQuestionNode(topicPrompt, fullPrompt, topicStartX, {
+    generationMode: mode,
+    imageCount,
+    imageAspectRatio,
+    imageQuality,
+    imageInputs,
+    imageInput,
+    parentModelKey,
+    questionY
+  });
+  if (parentBounds && Number.isFinite(parentCenterX)) {
+    question.x = Math.round(parentCenterX - question.width / 2);
+  }
+  const topicBaseY = parentBounds
+    ? Math.round(question.y + question.height + QUESTION_TO_RESULT_GAP_Y)
+    : RESULT_CARD_BASE_Y;
+  questionNodes.value.push(question);
+
+  const routeMap = {};
+  let maxCardRight = Number.NEGATIVE_INFINITY;
+  let minCardLeft = Number.POSITIVE_INFINITY;
+  let panelIndex = 0;
+  enabledConfigs.forEach((cfg) => {
+    const repeatCount = normalizeGenerateCount(cfg?.generateCount);
+    for (let replicaIndex = 1; replicaIndex <= repeatCount; replicaIndex += 1) {
+      const sourceModel = buildModelTagFromConfig(cfg, replicaIndex);
+      const sourceKey = parseModelTag(sourceModel).key;
+      const modelKey = `${question.id}::${sourceKey}`;
+        const state = createModelState(modelKey, panelIndex, {
+          sourceModel,
+          questionId: question.id,
+          promptText: fullPrompt,
+          generationMode: mode,
+          imageCount,
+          imageAspectRatio,
+          imageQuality,
+          imageInputs,
+          imageInput,
+          inputPricePerMillion: cfg?.inputPricePerMillion,
+          outputPricePerMillion: cfg?.outputPricePerMillion
+      });
+      stateMap[modelKey] = state;
+      routeMap[sourceKey] = modelKey;
+
+      const layout = ensureNodeLayout(modelKey, panelIndex);
+      layout.x = topicStartX + panelIndex * RESULT_CARD_STEP_X;
+      layout.y = topicBaseY;
+      bringToFront(layout);
+      maxCardRight = Math.max(maxCardRight, layout.x + RESULT_CARD_WIDTH);
+      minCardLeft = Math.min(minCardLeft, layout.x);
+      panelIndex += 1;
+    }
+  });
+
+  let minLeft = question.x;
+  let maxRight = question.x + question.width;
+  if (Number.isFinite(minCardLeft) && Number.isFinite(maxCardRight)) {
+    const centerX = parentBounds && Number.isFinite(parentCenterX)
+      ? parentCenterX
+      : (minCardLeft + maxCardRight) / 2;
+    question.x = Math.round(centerX - question.width / 2);
+    minLeft = Math.min(question.x, minCardLeft);
+    maxRight = Math.max(question.x + question.width, maxCardRight);
+  }
+
+  ensureTopicVisible(minLeft, maxRight);
+  return {
+    questionId: question.id,
+    routeMap
+  };
 }
 
-async function send() {
-  if (loading.value) {
+function ensureTopicVisible(minLeft, maxRight) {
+  ensureTopicVisibleUtil({
+    canvas: flowCanvasRef.value,
+    minLeft,
+    maxRight,
+    canvasOffset,
+    safeScale: getSafeCanvasScale(),
+    padding: 32
+  });
+}
+
+function resolveFollowUpParentModel(mode) {
+  if (normalizeGenerationMode(mode) === IMAGE_MODE) {
+    const imageSourceModel = String(selectedImageSourceModel.value || "").trim();
+    if (imageSourceModel && stateMap[imageSourceModel]) {
+      return imageSourceModel;
+    }
+  }
+  if (selectedModule.type === "model" && stateMap[selectedModule.id]) {
+    return selectedModule.id;
+  }
+  return "";
+}
+
+function markRouteModelsAsFailed(routeMap, message, onlyUnfinished = false) {
+  const safeMessage = String(message || "").trim() || "请求失败，请重试";
+  if (!routeMap || typeof routeMap !== "object") {
     return;
   }
 
-  const text = prompt.value.trim();
-  if (!text) {
-    ElMessage.warning("请输入内容后再发送");
-    return;
-  }
-
-  loading.value = true;
-
-  try {
-    await loadConfigs();
-    const enabled = apiConfigs.value.filter((cfg) => cfg.enabled);
-    if (enabled.length === 0) {
-      ElMessage.warning("请先配置并启用至少一个 API");
+  Object.values(routeMap).forEach((modelKey) => {
+    const key = String(modelKey || "").trim();
+    if (!key) {
+      return;
+    }
+    const item = stateMap[key];
+    if (!item) {
+      return;
+    }
+    if (onlyUnfinished && item.done) {
       return;
     }
 
-    initPanelsByEnabledConfigs();
-    lastSentPrompt.value = text;
-    setQuestionNodeContent(text);
+    applyStreamEventToModel(key, {
+      model: item.sourceModel || item.model || key,
+      delta: "",
+      done: true,
+      error: safeMessage
+    });
+  });
+  flushDirtyModelsNow();
+}
+
+async function send() {
+  if (!authReady.value) {
+    requireInviteLogin();
+    ElMessage.warning("请先输入邀请码登录");
+    return;
+  }
+  const text = prompt.value.trim();
+  const mode = normalizeGenerationMode(generationMode.value);
+  const parentModelKey = resolveFollowUpParentModel(mode);
+  const isFollowUp = Boolean(parentModelKey);
+  const safeImageCount = normalizeImageBatchCount(imageBatchCount.value);
+  const safeImageAspectRatio = normalizeImageAspectRatio(imageAspectRatio.value);
+  const safeImageQuality = normalizeImageQuality(imageQuality.value);
+  const imageInputs = mode === IMAGE_MODE ? cloneImageInputPayloadList(selectedImageInputs.value) : [];
+  const imageInput = mode === IMAGE_MODE
+    ? (cloneImageInputPayload(selectedImageInput.value) || cloneImageInputPayload(imageInputs[0]))
+    : null;
+  const payloadPrompt = mode === TEXT_MODE
+    ? (isFollowUp ? buildPromptWithAllConversationContexts(text) : buildPromptWithSelectedContexts(text))
+    : buildPromptWithSelectedContexts(text);
+  if (!payloadPrompt) {
+    ElMessage.warning("请输入内容后再发送");
+    return;
+  }
+  const displayPrompt = text || "基于已选上下文继续";
+
+  let activeQuestionId = "";
+  let activeRouteMap = null;
+  try {
+    await loadConfigs();
+    const expectedApiType = mode === IMAGE_MODE ? API_TYPE_IMAGE : API_TYPE_TEXT;
+    let enabled = apiConfigs.value.filter((cfg) => cfg.enabled && cfg.apiType === expectedApiType);
+    if (enabled.length === 0) {
+      ElMessage.warning(mode === IMAGE_MODE ? "请先配置并启用至少一个图片 API" : "请先配置并启用至少一个文字 API");
+      return;
+    }
+    if (mode === IMAGE_MODE && imageInputs.length === 0) {
+      const withoutReferenceCompatible = enabled.filter((cfg) => !requiresReferenceImage(cfg));
+      if (withoutReferenceCompatible.length === 0) {
+        ElMessage.warning("当前启用的图片模型需要参考图，请先上传参考图");
+        return;
+      }
+      if (withoutReferenceCompatible.length < enabled.length) {
+        ElMessage.info("已自动跳过需要参考图的模型");
+      }
+      enabled = withoutReferenceCompatible;
+    }
+    if (mode === IMAGE_MODE && imageInputs.length > 0) {
+      const editableModels = enabled.filter((cfg) => supportsReferenceImageEditing(cfg));
+      if (editableModels.length === 0) {
+    ElMessage.warning("当前启用的图片模型不支持参考图编辑。请启用 GPT-Image-2-All / Qwen-Image-2.0 / Qwen-Image-Edit / NanoBanana。");
+        return;
+      }
+      if (editableModels.length < enabled.length) {
+        ElMessage.info("已自动跳过不支持参考图编辑的模型");
+      }
+      enabled = editableModels;
+    }
+
+    const { questionId, routeMap } = appendPanelsForTopic(displayPrompt, payloadPrompt, enabled, {
+      mode,
+      imageCount: safeImageCount,
+      imageAspectRatio: safeImageAspectRatio,
+      imageQuality: safeImageQuality,
+      imageInputs,
+      imageInput,
+      parentModelKey
+    });
+    activeQuestionId = questionId;
+    activeRouteMap = routeMap;
+    lastSentPrompt.value = payloadPrompt;
     acceptIncomingEvents.value = true;
 
-    abortAllStreams();
-    controller = new AbortController();
-    await sendPromptStream("", text, onStreamEvent, controller.signal);
+    const streamController = new AbortController();
+    streamControllers.set(questionId, streamController);
+    await sendPromptStream(
+      "",
+      payloadPrompt,
+      (event) => {
+        if (handleInviteAuthFailure(event?.error)) {
+          return;
+        }
+        onStreamEvent(event, routeMap);
+      },
+      streamController.signal,
+        {
+          mode,
+          imageCount: mode === IMAGE_MODE ? safeImageCount : undefined,
+          imageAspectRatio: mode === IMAGE_MODE ? safeImageAspectRatio : undefined,
+          imageQuality: mode === IMAGE_MODE ? safeImageQuality : undefined,
+          imageInput: mode === IMAGE_MODE ? imageInput || undefined : undefined,
+          imageInputs: mode === IMAGE_MODE && imageInputs.length > 0 ? imageInputs : undefined
+        }
+      );
+    markRouteModelsAsFailed(
+      activeRouteMap,
+      "未收到模型返回，请重试或检查该模型配置",
+      true
+    );
   } catch (error) {
-    ElMessage.error(error.message || "流式请求失败");
+    if (error?.name !== "AbortError") {
+      if (handleInviteAuthFailure(error.message)) {
+        return;
+      }
+      markRouteModelsAsFailed(activeRouteMap, error.message || "流式请求失败");
+      ElMessage.error(error.message || "流式请求失败");
+    }
   } finally {
     flushDirtyModelsNow();
-    loading.value = false;
-    controller = null;
+    if (activeQuestionId) {
+      streamControllers.delete(activeQuestionId);
+    }
+    await persistCanvasSnapshot({ silent: true });
   }
 }
 
-function onStreamEvent(event) {
-  if (!acceptIncomingEvents.value) {
+async function regenerateQuestion(questionId) {
+  if (!questionId) {
     return;
   }
 
-  const model = parseModelTag(event.model || "Unknown").key;
-  if (!activeModelKeys.value.has(model) && !retryingMap[model]) {
+  const question = findQuestionNodeById(questionId);
+  if (!question) {
+    ElMessage.warning("未找到该问题模块");
     return;
-  }
-  if (!stateMap[model] && !loading.value && !retryingMap[model]) {
-    return;
-  }
-  if (!stateMap[model]) {
-    stateMap[model] = createModelState(model, modelList.value.length);
   }
 
-  if (event.delta) {
-    stateMap[model].pendingDelta += event.delta;
-    scheduleModelFlush(model);
+  const questionModels = modelList.value.filter((item) => item.questionId === questionId);
+  if (!questionModels.length) {
+    ElMessage.warning("该问题下暂无回答模块可重试");
+    return;
   }
-  if (event.error) {
-    stateMap[model].error = event.error;
-    stateMap[model].done = true;
-    delete retryingMap[model];
-    scheduleModelFlush(model);
-    flushDirtyModelsNow();
+
+  const basePrompt = (
+    question.fullPrompt ||
+    questionModels[0]?.promptText ||
+    question.text ||
+    lastSentPrompt.value ||
+    prompt.value ||
+    ""
+  ).trim();
+  if (!basePrompt) {
+    ElMessage.warning("没有可重试的提问内容，请先发送一次消息");
+    return;
   }
-  if (event.done) {
-    stateMap[model].done = true;
-    delete retryingMap[model];
-    scheduleModelFlush(model);
+  const retryMode = normalizeGenerationMode(question.generationMode || questionModels[0]?.generationMode);
+  const retryImageCount = normalizeImageBatchCount(question.imageCount || questionModels[0]?.imageCount);
+  const retryImageAspectRatio = normalizeImageAspectRatio(
+    question.imageAspectRatio || questionModels[0]?.imageAspectRatio || imageAspectRatio.value
+  );
+  const retryImageQuality = normalizeImageQuality(
+    question.imageQuality || questionModels[0]?.imageQuality || imageQuality.value
+  );
+  let retryImageInputs = cloneImageInputPayloadList(question.imageInputs);
+  if (retryImageInputs.length === 0) {
+    retryImageInputs = cloneImageInputPayloadList(questionModels[0]?.imageInputs);
+  }
+  let retryImageInput = cloneImageInputPayload(question.imageInput || questionModels[0]?.imageInput);
+  if (!retryImageInput && retryImageInputs.length > 0) {
+    retryImageInput = cloneImageInputPayload(retryImageInputs[0]);
+  }
+  if (retryImageInputs.length === 0 && retryImageInput) {
+    retryImageInputs = [cloneImageInputPayload(retryImageInput)];
+  }
+
+  const routeMap = {};
+  const targetModelSet = new Set();
+  questionModels.forEach((item) => {
+    const sourceModel = (item.sourceModel || item.model || "").trim();
+    if (!sourceModel) {
+      return;
+    }
+
+    const sourceKey = parseModelTag(sourceModel).key;
+    routeMap[sourceKey] = item.model;
+    targetModelSet.add(sourceModel);
+
+      item.promptText = basePrompt;
+      item.generationMode = retryMode;
+      item.imageCount = retryImageCount;
+      item.imageAspectRatio = retryImageAspectRatio;
+      item.imageQuality = retryImageQuality;
+      item.imageInputs = cloneImageInputPayloadList(retryImageInputs);
+      item.imageInput = cloneImageInputPayload(retryImageInput);
+      item.content = "";
+    item.pendingDelta = "";
+    item.error = "";
+    item.done = false;
+    item.timeText = formatNowTimeText();
+    item.renderedHtml = renderStreamingMarkdown("");
+
+    const existingRetryController = retryControllers.get(item.model);
+    if (existingRetryController) {
+      existingRetryController.abort();
+      retryControllers.delete(item.model);
+    }
+    delete retryingMap[item.model];
+  });
+
+  const targetModels = Array.from(targetModelSet);
+  if (!targetModels.length) {
+    ElMessage.warning("未找到可重试的目标模型");
+    return;
+  }
+
+  const existingStreamController = streamControllers.get(questionId);
+  if (existingStreamController) {
+    existingStreamController.abort();
+  }
+  const questionRetryController = new AbortController();
+  streamControllers.set(questionId, questionRetryController);
+
+  question.timeText = formatNowTimeText();
+  question.fullPrompt = basePrompt;
+  question.generationMode = retryMode;
+  question.imageCount = retryImageCount;
+  question.imageAspectRatio = retryImageAspectRatio;
+  question.imageQuality = retryImageQuality;
+  question.imageInputs = cloneImageInputPayloadList(retryImageInputs);
+  question.imageInput = cloneImageInputPayload(retryImageInput);
+  lastSentPrompt.value = basePrompt;
+  acceptIncomingEvents.value = true;
+  saveChatUiState();
+
+  try {
+    await sendPromptStream("", basePrompt, (event) => {
+      if (handleInviteAuthFailure(event?.error)) {
+        return;
+      }
+      onStreamEvent(event, routeMap);
+    }, questionRetryController.signal, {
+      targetModels,
+        appendUserMessage: true,
+        mode: retryMode,
+        imageCount: retryMode === IMAGE_MODE ? retryImageCount : undefined,
+        imageAspectRatio: retryMode === IMAGE_MODE ? retryImageAspectRatio : undefined,
+        imageQuality: retryMode === IMAGE_MODE ? retryImageQuality : undefined,
+        imageInput: retryMode === IMAGE_MODE ? retryImageInput || undefined : undefined,
+        imageInputs: retryMode === IMAGE_MODE && retryImageInputs.length > 0 ? retryImageInputs : undefined
+      });
+    markRouteModelsAsFailed(
+      routeMap,
+      "未收到模型返回，请重试或检查该模型配置",
+      true
+    );
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      if (handleInviteAuthFailure(error.message)) {
+        return;
+      }
+      markRouteModelsAsFailed(routeMap, error.message || "问题重试失败", true);
+      ElMessage.error(error.message || "问题重试失败");
+    }
+  } finally {
     flushDirtyModelsNow();
+    if (streamControllers.get(questionId) === questionRetryController) {
+      streamControllers.delete(questionId);
+    }
+    saveChatUiState();
+    await persistCanvasSnapshot({ silent: true });
   }
 }
 
 async function regenerateModel(model) {
-  if (!model || loading.value) {
-    return;
-  }
-
-  const basePrompt = (lastSentPrompt.value || prompt.value || "").trim();
-  if (!basePrompt) {
-    ElMessage.warning("没有可重试的提问内容，请先发送一次消息");
+  if (!model) {
     return;
   }
 
@@ -1821,11 +1627,35 @@ async function regenerateModel(model) {
     ElMessage.warning("未找到该模型卡片");
     return;
   }
+  const basePrompt = (item.promptText || lastSentPrompt.value || prompt.value || "").trim();
+  if (!basePrompt) {
+    ElMessage.warning("没有可重试的提问内容，请先发送一次消息");
+    return;
+  }
+  const sourceModel = (item.sourceModel || model).trim();
+  const sourceModelKey = parseModelTag(sourceModel).key;
+  const mode = normalizeGenerationMode(item.generationMode);
+  const safeImageCount = normalizeImageBatchCount(item.imageCount);
+  const safeImageAspectRatio = normalizeImageAspectRatio(item.imageAspectRatio || imageAspectRatio.value);
+  const safeImageQuality = normalizeImageQuality(item.imageQuality || imageQuality.value);
+  let imageInputs = cloneImageInputPayloadList(item.imageInputs);
+  let imageInput = cloneImageInputPayload(item.imageInput);
+  if (!imageInput && imageInputs.length > 0) {
+    imageInput = cloneImageInputPayload(imageInputs[0]);
+  }
+  if (imageInputs.length === 0 && imageInput) {
+    imageInputs = [cloneImageInputPayload(imageInput)];
+  }
 
   item.content = "";
   item.pendingDelta = "";
   item.error = "";
   item.done = false;
+  item.timeText = formatNowTimeText();
+  item.imageAspectRatio = safeImageAspectRatio;
+  item.imageQuality = safeImageQuality;
+  item.imageInputs = cloneImageInputPayloadList(imageInputs);
+  item.imageInput = cloneImageInputPayload(imageInput);
   item.renderedHtml = renderStreamingMarkdown("");
   retryingMap[model] = true;
   acceptIncomingEvents.value = true;
@@ -1838,11 +1668,14 @@ async function regenerateModel(model) {
   const retryController = new AbortController();
   retryControllers.set(model, retryController);
   const onRetryStreamEvent = (event) => {
-    const eventModel = parseModelTag(event?.model || "Unknown").key;
-    if (eventModel !== model) {
+    if (handleInviteAuthFailure(event?.error)) {
       return;
     }
-    onStreamEvent(event);
+    const eventModel = parseModelTag(event?.model || "Unknown").key;
+    if (eventModel !== sourceModelKey) {
+      return;
+    }
+    applyStreamEventToModel(model, event);
   };
   try {
     await sendPromptStream(
@@ -1850,13 +1683,22 @@ async function regenerateModel(model) {
       basePrompt,
       onRetryStreamEvent,
       retryController.signal,
-      {
-        targetModels: [model],
-        appendUserMessage: true
-      }
-    );
+        {
+          targetModels: [sourceModel],
+          appendUserMessage: true,
+          mode,
+          imageCount: mode === IMAGE_MODE ? safeImageCount : undefined,
+          imageAspectRatio: mode === IMAGE_MODE ? safeImageAspectRatio : undefined,
+          imageQuality: mode === IMAGE_MODE ? safeImageQuality : undefined,
+          imageInput: mode === IMAGE_MODE ? imageInput || undefined : undefined,
+          imageInputs: mode === IMAGE_MODE && imageInputs.length > 0 ? imageInputs : undefined
+        }
+      );
   } catch (error) {
     if (error?.name !== "AbortError") {
+      if (handleInviteAuthFailure(error.message)) {
+        return;
+      }
       item.error = error.message || "重试失败";
       item.done = true;
       item.renderedHtml = buildRenderedContent(item);
@@ -1867,6 +1709,7 @@ async function regenerateModel(model) {
     delete retryingMap[model];
     flushDirtyModelsNow();
     saveChatUiState();
+    await persistCanvasSnapshot({ silent: true });
   }
 }
 
@@ -1881,46 +1724,22 @@ function onPromptKeydown(event) {
 async function clear() {
   acceptIncomingEvents.value = false;
   abortAllStreams();
-  loading.value = false;
 
   prompt.value = DEFAULT_MARKDOWN_PROMPT;
+  generationMode.value = TEXT_MODE;
+  imageBatchCount.value = DEFAULT_IMAGE_BATCH_COUNT;
+  imageAspectRatio.value = DEFAULT_IMAGE_ASPECT_RATIO;
+  imageQuality.value = DEFAULT_IMAGE_QUALITY;
+  clearImageInput();
   lastSentPrompt.value = "";
-  setQuestionNodeContent("");
   clearModelStates();
   canvasOffset.x = 0;
   canvasOffset.y = 0;
+  canvasScale.value = 1;
   flowLayoutCache.value = {};
   clearFlowLayoutStorage();
   clearChatUiStateStorage();
   ElMessage.success("已开启全新对话");
-}
-
-async function handleMarkdownAction(event) {
-  if (!(event.target instanceof Element)) {
-    return;
-  }
-  const button = event.target.closest(".code-copy-btn");
-  if (!button) {
-    return;
-  }
-
-  const block = button.closest(".code-block");
-  const codeEl = block?.querySelector("code");
-  const codeText = codeEl?.textContent || "";
-  if (!codeText.trim()) {
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(codeText);
-    const original = button.textContent;
-    button.textContent = "已复制";
-    setTimeout(() => {
-      button.textContent = original || "复制";
-    }, 1200);
-  } catch {
-    ElMessage.warning("复制失败，请手动复制");
-  }
 }
 
 watch(prompt, () => {
@@ -1932,6 +1751,35 @@ watch(lastSentPrompt, () => {
 });
 
 watch(
+  generationMode,
+  (mode, previousMode) => {
+    const normalizedMode = normalizeGenerationMode(mode);
+    const normalizedPreviousMode = normalizeGenerationMode(previousMode);
+    const modeChanged = previousMode !== undefined && normalizedMode !== normalizedPreviousMode;
+    syncSidebarApiViewWithGenerationMode(normalizedMode);
+    if (modeChanged) {
+      clearSelectedModule();
+      selectedImageSourceModel.value = "";
+      hideImageHoverPreview();
+      closeImageViewer();
+      stopDragging();
+      stopCanvasPanning();
+      stopQuestionDragging();
+      stopSummaryDraft();
+    }
+    if (normalizedMode !== IMAGE_MODE) {
+      resetImageDragState();
+      return;
+    }
+    const trimmedPrompt = String(prompt.value || "").trim();
+    if (!trimmedPrompt || trimmedPrompt === DEFAULT_MARKDOWN_PROMPT) {
+      prompt.value = DEFAULT_IMAGE_PROMPT;
+    }
+  },
+  { immediate: true }
+);
+
+watch(
   () => [canvasOffset.x, canvasOffset.y],
   () => {
     saveChatUiState();
@@ -1939,682 +1787,7 @@ watch(
 );
 </script>
 
-<style scoped>
-.demo-page {
-  height: 100vh;
-  width: 100%;
-  padding: 12px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+<style src="./ChatView.css"></style>
 
-.input-card {
-  margin-top: 10px;
-  background: #fff;
-  border: 1px solid #dfe4f0;
-  border-radius: 12px;
-  padding: 10px 12px;
-  flex-shrink: 0;
-  transition: margin-right 160ms ease, padding 160ms ease, min-height 160ms ease;
-}
-
-.input-card.collapsed {
-  padding: 0;
-  min-height: 6px;
-  border-color: transparent;
-  background: transparent;
-}
-
-.input-card.with-sidebar {
-  margin-right: 336px;
-}
-
-.input-peek {
-  position: fixed;
-  left: 50%;
-  bottom: 10px;
-  transform: translateX(-50%);
-  width: 36px;
-  height: 22px;
-  border: 1px solid #cfd6e3;
-  border-radius: 10px 10px 0 0;
-  background: rgba(255, 255, 255, 0.96);
-  color: #334155;
-  cursor: pointer;
-  z-index: 70;
-  line-height: 1;
-  font-size: 14px;
-}
-
-.input-peek:hover {
-  background: #f8fafc;
-}
-
-.input-peek.with-sidebar {
-  left: calc(50% - 168px);
-}
-
-.input-peek.open {
-  bottom: 122px;
-}
-
-.workspace {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  transition: margin-right 160ms ease;
-}
-
-.workspace.with-sidebar {
-  margin-right: 336px;
-}
-
-.sidebar-peek {
-  position: fixed;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 70px;
-  border: 1px solid #cfd6e3;
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
-  background: rgba(255, 255, 255, 0.96);
-  color: #334155;
-  font-size: 18px;
-  cursor: pointer;
-  z-index: 60;
-}
-
-.sidebar-peek.open {
-  right: 336px;
-}
-
-.model-sidebar-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: 336px;
-  padding: 12px;
-  box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.98);
-  border-left: 1px solid #dbe3f0;
-  transform: translateX(100%);
-  transition: transform 160ms ease;
-  z-index: 55;
-  overflow-y: auto;
-}
-
-.model-sidebar-panel.open {
-  transform: translateX(0);
-}
-
-.api-empty {
-  color: #7b8190;
-  font-size: 13px;
-  margin: 0;
-  background: #fff;
-  border: 1px dashed #d7ddea;
-  border-radius: 10px;
-  padding: 16px;
-}
-
-.api-list {
-  display: grid;
-  gap: 8px;
-}
-
-.api-item {
-  border: 1px solid #e3e7f1;
-  border-radius: 8px;
-  padding: 10px;
-  background: #fafcff;
-}
-
-.api-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.api-url {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #5f6673;
-  word-break: break-all;
-}
-
-.actions {
-  margin-top: 8px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.pin-btn {
-  margin-right: auto;
-}
-
-.pin-icon-btn {
-  padding: 4px;
-  min-width: 28px;
-}
-
-.pin-icon-btn.active {
-  color: #2563eb;
-}
-
-.flow-board {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.flow-canvas {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  border: 1px solid #dfe4f0;
-  border-radius: 12px;
-  overflow: hidden;
-  background-color: #f8fafd;
-  background-image:
-    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-
-.flow-layer {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.flow-links {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.flow-link {
-  fill: none;
-  stroke: rgba(71, 85, 105, 0.5);
-  stroke-width: 1.6;
-  stroke-dasharray: 6 6;
-}
-
-.question-node {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border: 1px solid #2f3b52;
-  border-bottom: 0;
-  background: linear-gradient(160deg, #222834 0%, #1b2230 100%);
-  border-radius: 18px;
-  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.32);
-  padding: 14px 16px 4px;
-  color: #e5e7eb;
-  z-index: 2;
-}
-
-.question-drag-handle {
-  cursor: grab;
-  user-select: none;
-}
-
-.question-drag-handle:active {
-  cursor: grabbing;
-}
-
-.question-chip {
-  display: inline-block;
-  font-size: 12px;
-  color: #cbd5e1;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(100, 116, 139, 0.4);
-  border-radius: 999px;
-  padding: 2px 8px;
-  margin-bottom: 8px;
-}
-
-.question-text {
-  font-size: 15px;
-  line-height: 1.55;
-  color: #f8fafc;
-  font-weight: 600;
-  word-break: break-word;
-}
-
-.question-meta {
-  margin-top: 4px;
-  margin-bottom: 0;
-  line-height: 1.1;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.summary-draft {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border: 1px dashed #2563eb;
-  background: rgba(37, 99, 235, 0.1);
-  pointer-events: none;
-}
-
-.summary-block {
-  position: absolute;
-  left: 0;
-  top: 0;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid #c7d2fe;
-  border-radius: 10px;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.summary-block-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  color: #334155;
-}
-
-.summary-block-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.summary-selected-list {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.summary-empty-tip {
-  font-size: 12px;
-  color: #8a93a1;
-}
-
-.summary-error {
-  color: #dc2626;
-  font-size: 13px;
-}
-
-.summary-content {
-  max-height: 240px;
-  overflow: auto;
-}
-
-.flow-canvas.dragging {
-  cursor: grabbing;
-}
-
-.result-card {
-  border: 1px solid #dfe4f0;
-  min-height: 230px;
-  width: 340px;
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.flow-node {
-  position: absolute;
-  margin: 0;
-  will-change: transform;
-  contain: layout paint;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
-  transition: none !important;
-}
-
-.flow-node.dragging {
-  box-shadow: none;
-  pointer-events: none;
-}
-
-.drag-source-hidden {
-  visibility: hidden;
-}
-
-.drag-ghost {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.55);
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16);
-  padding: 12px 14px;
-  z-index: 40;
-  pointer-events: none;
-}
-
-.drag-ghost-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 1.2;
-}
-
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.retry-btn {
-  padding: 0 6px;
-}
-
-.drag-handle {
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-
-.flow-node.dragging .drag-handle {
-  cursor: grabbing;
-}
-
-.sidebar-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sidebar-head h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.sidebar-head-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sidebar-actions {
-  margin-top: 8px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.content {
-  word-break: break-word;
-  line-height: 1.7;
-  overflow-x: auto;
-}
-
-.content :deep(p) {
-  margin: 0 0 10px;
-}
-
-.content :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.content :deep(.code-block) {
-  margin: 12px 0;
-  border: 1px solid #d9dce3;
-  border-bottom: none;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #eceef2;
-}
-
-.content :deep(.code-toolbar) {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: #e4e7ec;
-  border-bottom: 1px solid #d5d8df;
-}
-
-.content :deep(.code-lang) {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2937;
-  text-transform: lowercase;
-}
-
-.content :deep(.code-copy-btn) {
-  border: 1px solid #c7cdd8;
-  background: rgba(248, 249, 251, 0.92);
-  color: #1f2937;
-  border-radius: 6px;
-  padding: 3px 9px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.content :deep(.code-copy-btn:hover) {
-  background: #eef2f7;
-}
-
-.content :deep(.code-block pre) {
-  margin: 0;
-  padding: 0;
-  background: #f3f4f6;
-  overflow: auto;
-}
-
-.content :deep(.code-block pre code) {
-  display: block;
-  margin: 0;
-  padding: 16px;
-  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.65;
-  background: transparent !important;
-  border: 0;
-  box-shadow: none;
-}
-
-.content :deep(.code-block pre code.hljs) {
-  padding: 16px;
-  background: transparent !important;
-}
-
-.content :deep(code:not(pre code)) {
-  background: #eef2f8;
-  border-radius: 4px;
-  padding: 1px 4px;
-}
-
-.content :deep(strong) {
-  font-weight: 600;
-  padding: 0 2px;
-  border-radius: 2px;
-  background: linear-gradient(transparent 35%, #ffd37a 35%, #ffd37a 88%, transparent 88%);
-}
-
-.content :deep(em) {
-  color: #2563eb;
-}
-
-.content :deep(ul),
-.content :deep(ol) {
-  margin: 8px 0;
-  padding-left: 20px;
-}
-
-.content :deep(ul.contains-task-list) {
-  list-style: none;
-  padding-left: 0;
-}
-
-.content :deep(li.task-list-item) {
-  list-style: none;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.content :deep(.task-list-item-checkbox) {
-  width: 16px;
-  height: 16px;
-  margin-top: 4px;
-  accent-color: #2563eb;
-  pointer-events: none;
-}
-
-.content :deep(a) {
-  color: var(--primary-color);
-}
-
-.content :deep(blockquote) {
-  margin: 12px 0;
-  padding: 16px 18px;
-  border-left: 6px solid #eef1f5;
-  border-radius: 12px;
-  background: #c0c4cc;
-  color: #111827;
-}
-
-.content :deep(blockquote > :first-child) {
-  margin-top: 0;
-}
-
-.content :deep(blockquote > :last-child) {
-  margin-bottom: 0;
-}
-
-.content :deep(blockquote blockquote) {
-  margin: 12px 0 0;
-  background: #aab0ba;
-  border-left-color: #f3f5f8;
-}
-
-.content :deep(blockquote blockquote blockquote) {
-  background: #969daa;
-}
-
-.content :deep(table) {
-  width: max-content;
-  min-width: 100%;
-  table-layout: auto;
-  border-collapse: collapse;
-  border: 1px solid #d7ddea;
-  border-radius: 8px;
-  overflow: hidden;
-  margin: 0;
-  background: #ffffff;
-}
-
-.content :deep(.table-scroll) {
-  width: 100%;
-  margin: 12px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-gutter: stable;
-  padding-bottom: 4px;
-}
-
-.content :deep(.table-scroll::-webkit-scrollbar) {
-  height: 8px;
-}
-
-.content :deep(.table-scroll::-webkit-scrollbar-thumb) {
-  background: #c2cad9;
-  border-radius: 999px;
-}
-
-.content :deep(.table-scroll::-webkit-scrollbar-track) {
-  background: #e9edf5;
-  border-radius: 999px;
-}
-
-.content :deep(th),
-.content :deep(td) {
-  border: 1px solid #d7ddea;
-  padding: 10px 12px;
-  vertical-align: top;
-  white-space: nowrap;
-  word-break: keep-all;
-}
-
-.content :deep(th) {
-  background: #f5f8ff;
-  font-weight: 700;
-}
-
-.content :deep(tbody tr:nth-child(even)) {
-  background: #fafcff;
-}
-
-.content :deep(.thought-block) {
-  margin: 12px 0;
-  padding: 8px 10px;
-  border: 1px dashed #c9d4ea;
-  border-radius: 8px;
-  background: #f8fbff;
-}
-
-.content :deep(.thought-block > summary) {
-  cursor: pointer;
-  user-select: none;
-  color: #4b5563;
-  font-weight: 600;
-}
-
-.content :deep(.thought-content) {
-  margin-top: 8px;
-}
-
-.content :deep(.stream-placeholder) {
-  margin: 0;
-  color: #7b8190;
-  font-style: italic;
-}
-
-.content :deep(.stream-plain) {
-  margin: 0;
-  color: #222;
-}
-
-.content :deep(.mjx-container) {
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.content :deep(.mjx-container[display="true"]) {
-  margin: 10px 0 !important;
-}
-
-.content :deep(.math-block) {
-  margin: 10px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.content :deep(.math-inline) {
-  display: inline;
-}
-</style>
 
 

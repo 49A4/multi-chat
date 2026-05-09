@@ -17,6 +17,9 @@ public class SseEvent {
     private boolean done;
     private String error;
     private String fullContent;
+    private Integer promptTokens;
+    private Integer completionTokens;
+    private Integer totalTokens;
 
     public static SseEvent delta(String sessionId, String model, String delta) {
         return SseEvent.builder()
@@ -28,12 +31,19 @@ public class SseEvent {
     }
 
     public static SseEvent done(String sessionId, String model, String fullContent) {
+        return done(sessionId, model, fullContent, null);
+    }
+
+    public static SseEvent done(String sessionId, String model, String fullContent, TokenUsage usage) {
         return SseEvent.builder()
             .sessionId(sessionId)
             .model(model)
             .delta("")
             .done(true)
             .fullContent(fullContent)
+            .promptTokens(usage == null ? null : usage.getPromptTokens())
+            .completionTokens(usage == null ? null : usage.getCompletionTokens())
+            .totalTokens(usage == null ? null : usage.getTotalTokens())
             .build();
     }
 

@@ -25,10 +25,11 @@ public class DemoChatController {
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<SseEvent>> stream(
         @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader,
         @Valid @RequestBody ChatRequest request
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
-        return demoChatService.streamDemo(clientId, request.getSessionId(), request.getPrompt())
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
+        return demoChatService.streamDemo(userId, request.getSessionId(), request.getPrompt())
             .map(event -> ServerSentEvent.<SseEvent>builder()
                 .event("message")
                 .data(event)

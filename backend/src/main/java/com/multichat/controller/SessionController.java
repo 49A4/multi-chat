@@ -30,10 +30,11 @@ public class SessionController {
 
     @GetMapping
     public List<SessionSummary> findAll(
-        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader
+        @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
-        return sessionStore.findAllByOwner(clientId).stream()
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
+        return sessionStore.findAllByOwner(userId).stream()
             .map(session -> SessionSummary.builder()
                 .id(session.getId())
                 .title(session.getTitle())
@@ -46,33 +47,36 @@ public class SessionController {
     @PostMapping
     public ChatSession create(
         @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader,
         @RequestBody(required = false) Map<String, String> request
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
         String title = request == null ? null : request.get("title");
         if (title != null && title.isBlank()) {
             title = null;
         }
-        return sessionStore.create(clientId, title);
+        return sessionStore.create(userId, title);
     }
 
     @GetMapping("/{id}")
     public ChatSession findById(
         @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader,
         @PathVariable String id
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
-        return sessionStore.findByIdAndOwner(id, clientId)
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
+        return sessionStore.findByIdAndOwner(id, userId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id));
     }
 
     @DeleteMapping("/{id}")
     public void delete(
         @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader,
         @PathVariable String id
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
-        boolean removed = sessionStore.deleteByIdAndOwner(id, clientId);
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
+        boolean removed = sessionStore.deleteByIdAndOwner(id, userId);
         if (!removed) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id);
         }
@@ -81,19 +85,20 @@ public class SessionController {
     @PostMapping("/{id}/adopt")
     public ChatSession adopt(
         @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader,
         @PathVariable String id,
         @Valid @RequestBody AdoptRequest request
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
-        ChatSession session = sessionStore.findByIdAndOwner(id, clientId)
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
+        ChatSession session = sessionStore.findByIdAndOwner(id, userId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id));
 
-        sessionStore.appendMessage(session.getId(), clientId, ChatMessage.builder()
+        sessionStore.appendMessage(session.getId(), userId, ChatMessage.builder()
             .role("assistant")
             .content(request.getContent())
             .build());
 
-        return sessionStore.findByIdAndOwner(id, clientId)
+        return sessionStore.findByIdAndOwner(id, userId)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Session not found: " + id));
     }
 }

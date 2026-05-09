@@ -3,5 +3,22 @@ server:
 spring:
   application:
     name: multi-chat-backend
+  codec:
+    max-in-memory-size: 32MB
+  datasource:
+    url: jdbc:h2:file:${user.home}/.multi-chat/multichat-db
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
 multichat:
   api-config-file: ${user.home}/.multi-chat/api-configs.json
+  auth:
+    invite-required: true
+    invite-file: ${user.home}/.multi-chat/invite-codes.json
+    bootstrap-invite-code: ${MULTICHAT_BOOTSTRAP_INVITE_CODE:admin-please-change}
+    bootstrap-user-id: ${MULTICHAT_BOOTSTRAP_USER_ID:admin}
+    admin-user-ids: ${MULTICHAT_ADMIN_USER_IDS:admin}
+    token-secret: ${MULTICHAT_TOKEN_SECRET:please-change-me}
+    token-ttl-hours: ${MULTICHAT_TOKEN_TTL_HOURS:720}
+  usage:
+    max-events: 10000

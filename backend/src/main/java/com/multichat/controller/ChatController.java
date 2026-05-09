@@ -3,8 +3,10 @@ package com.multichat.controller;
 import com.multichat.dto.ChatRequest;
 import com.multichat.model.SseEvent;
 import com.multichat.service.ChatService;
+import com.multichat.store.UsageStore;
 import com.multichat.util.ClientIdResolver;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -21,20 +23,37 @@ import reactor.core.publisher.Flux;
 public class ChatController {
 
     private final ChatService chatService;
+    private final UsageStore usageStore;
 
     @PostMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<SseEvent>> stream(
         @RequestHeader(value = ClientIdResolver.HEADER_NAME, required = false) String clientIdHeader,
+        @RequestHeader(value = ClientIdResolver.USER_HEADER_NAME, required = false) String userIdHeader,
         @Valid @RequestBody ChatRequest request
     ) {
-        String clientId = ClientIdResolver.resolve(clientIdHeader);
+        String userId = ClientIdResolver.resolve(clientIdHeader, userIdHeader);
+        String requestId = UUID.randomUUID().toString();
+        usageStore.recordRequestStart(userId);
+
         return chatService.streamChat(
-                clientId,
+                userId,
                 request.getSessionId(),
                 request.getPrompt(),
                 request.getTargetModels(),
-                request.getAppendUserMessage()
+                request.getAppendUserMessage(),
+                request.getMode(),
+                request.getImageCount(),
+                request.getImageAspectRatio(),
+                request.getImageQuality(),
+                request.getImageInput(),
+                request.getImageInputs()
             )
+            .doOnNext(event -> usageStore.recordModelFinalEvent(
+                userId,
+                requestId,
+                request.getMode(),
+                event
+            ))
             .map(event -> ServerSentEvent.<SseEvent>builder()
                 .event("message")
                 .data(event)
