@@ -2,19 +2,13 @@
   <div class="demo-page">
     <HistorySidebar
       :visible="historySidebarVisible"
-      :pinned="historySidebarPinned"
       :active-title="activeCanvasSnapshotTitle"
       :active-id="activeCanvasSnapshotId"
       :loading="snapshotLoading"
       :snapshots="canvasSnapshots"
       :panel-ref-target="historySidebarPanelRef"
       :peek-ref-target="historySidebarPeekRef"
-      @peek-enter="openHistorySidebar"
-      @peek-leave="onHistorySidebarLeave"
       @toggle="toggleHistorySidebar"
-      @panel-enter="onHistorySidebarEnter"
-      @panel-leave="onHistorySidebarLeave"
-      @toggle-pinned="toggleHistorySidebarPinned"
       @create-fresh="createFreshCanvas"
       @load="loadCanvasSnapshots"
       @restore="restoreCanvasSnapshot"
@@ -74,7 +68,6 @@
     <ModelSidebar
       v-model:editor-visible="sidebarConfigEditorVisible"
       :visible="sidebarVisible"
-      :pinned="sidebarPinned"
       :auth-user-display-name="authUserDisplayName"
       :api-configs="apiConfigs"
       :filtered-api-configs="filteredApiConfigs"
@@ -93,12 +86,7 @@
       :resolve-config-id="resolveConfigId"
       :panel-ref-target="sidebarPanelRef"
       :peek-ref-target="sidebarPeekRef"
-      @open="openSidebar"
       @toggle="toggleSidebar"
-      @enter="onSidebarEnter"
-      @leave="onSidebarLeave"
-      @close="sidebarVisible = false"
-      @toggle-pinned="toggleSidebarPinned"
       @switch-account="switchAccount"
       @load-configs="loadConfigs"
       @create-config="openSidebarCreateForm"
@@ -304,10 +292,8 @@ const imageQuality = ref(DEFAULT_IMAGE_QUALITY);
 const promptContexts = ref([]);
 const sidebarVisible = ref(false);
 const historySidebarVisible = ref(false);
-const historySidebarPinned = ref(false);
 const lastSentPrompt = ref("");
 const inputCollapsed = ref(false);
-const sidebarPinned = ref(false);
 
 const stateMap = reactive({});
 const retryingMap = reactive({});
@@ -339,7 +325,6 @@ const nodeLayoutMap = reactive({});
 const questionNodes = ref([]);
 const canvasScale = ref(1);
 let topicSeq = 1;
-let historySidebarCloseTimer = null;
 
 // Interaction state: dragging/panning/touch state is owned by canvasInteractionManager.
 const dragState = reactive({
@@ -673,19 +658,21 @@ function buildPromptWithAllConversationContexts(basePrompt) {
   return `${history}\n\n---\n\n### 当前问题\n${currentPrompt}`;
 }
 
+function toggleHistorySidebar() {
+  historySidebarVisible.value = !historySidebarVisible.value;
+  saveChatUiState();
+}
+
 const {
   openInputPanel,
   toggleInputPanel,
-  openSidebar,
   toggleSidebar,
   onSidebarEnter,
   onSidebarLeave,
   onWindowMouseMoveForSidebar,
-  toggleSidebarPinned,
   dispose: disposePanelVisibilityManager
 } = createPanelVisibilityManager({
   sidebarVisible,
-  sidebarPinned,
   inputCollapsed,
   sidebarPanelRef,
   sidebarPeekRef,
@@ -693,7 +680,7 @@ const {
   panState,
   questionDragState,
   summaryCreateState,
-  saveChatUiState
+  saveChatUiState: () => saveChatUiState()
 });
 
 const {
@@ -1114,7 +1101,6 @@ onMounted(async () => {
   window.addEventListener("pointerup", onWindowPointerUp);
   window.addEventListener("pointercancel", onWindowPointerUp);
   window.addEventListener("mousemove", onWindowMouseMoveForSidebar);
-  window.addEventListener("mousemove", onWindowMouseMoveForHistorySidebar);
   window.addEventListener("keydown", onImageViewerKeydown);
   window.addEventListener(getAuthExpiredEventName(), onAuthExpired);
   const authenticated = await ensureAuthenticatedSession();
@@ -1131,10 +1117,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("pointerup", onWindowPointerUp);
   window.removeEventListener("pointercancel", onWindowPointerUp);
   window.removeEventListener("mousemove", onWindowMouseMoveForSidebar);
-  window.removeEventListener("mousemove", onWindowMouseMoveForHistorySidebar);
   window.removeEventListener("keydown", onImageViewerKeydown);
   window.removeEventListener(getAuthExpiredEventName(), onAuthExpired);
-  clearHistorySidebarCloseTimer();
   disposePanelVisibilityManager();
   stopCanvasPanning();
   activeTouchPoints.clear();

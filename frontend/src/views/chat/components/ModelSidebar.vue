@@ -4,9 +4,8 @@
     class="sidebar-peek"
     :class="{ open: visible }"
     type="button"
-    @mouseenter="$emit('open')"
     @click="$emit('toggle')"
-    :title="pinned ? '侧边栏已固定' : (visible ? '收起侧边栏' : '展开侧边栏')"
+    :title="visible ? '收起侧边栏' : '展开侧边栏'"
   >
     {{ visible ? "›" : "‹" }}
   </button>
@@ -14,8 +13,6 @@
   <aside
     ref="panelRef"
     :class="['model-sidebar-panel', { open: visible }]"
-    @mouseenter="$emit('enter')"
-    @mouseleave="$emit('leave')"
   >
     <div class="sidebar-head">
       <div class="sidebar-head-main">
@@ -28,17 +25,6 @@
         <el-button text size="small" class="switch-account-btn" @click="$emit('switch-account')">
           切换账号
         </el-button>
-        <el-button
-          text
-          size="small"
-          class="pin-icon-btn"
-          :class="{ active: pinned }"
-          :title="pinned ? '取消固定侧边栏' : '固定侧边栏'"
-          @click="$emit('toggle-pinned')"
-        >
-          固定
-        </el-button>
-        <el-button text size="small" @click="$emit('close')">收起</el-button>
       </div>
     </div>
     <div class="sidebar-actions">
@@ -221,7 +207,6 @@ import { ref, watch } from "vue";
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
-  pinned: { type: Boolean, default: false },
   authUserDisplayName: { type: String, default: "" },
   apiConfigs: { type: Array, default: () => [] },
   filteredApiConfigs: { type: Array, default: () => [] },
@@ -244,12 +229,7 @@ const props = defineProps({
 });
 
 defineEmits([
-  "open",
   "toggle",
-  "enter",
-  "leave",
-  "close",
-  "toggle-pinned",
   "switch-account",
   "load-configs",
   "create-config",

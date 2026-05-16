@@ -4,10 +4,8 @@
     class="history-sidebar-peek"
     :class="{ open: visible }"
     type="button"
-    @mouseenter="$emit('peek-enter')"
-    @mouseleave="$emit('peek-leave')"
     @click="$emit('toggle')"
-    :title="pinned ? '历史侧栏已固定' : (visible ? '收起历史侧栏' : '展开历史侧栏')"
+    :title="visible ? '收起历史侧栏' : '展开历史侧栏'"
   >
     {{ visible ? "‹" : "›" }}
   </button>
@@ -15,8 +13,6 @@
   <aside
     ref="panelRef"
     :class="['history-sidebar-panel', { open: visible }]"
-    @mouseenter="$emit('panel-enter')"
-    @mouseleave="$emit('panel-leave')"
   >
     <section class="snapshot-sidebar">
       <div class="snapshot-sidebar-head">
@@ -25,16 +21,6 @@
           <span v-if="activeTitle" class="snapshot-active-tag" :title="activeTitle">
             当前：{{ activeTitle }}
           </span>
-          <el-button
-            text
-            size="small"
-            class="pin-icon-btn"
-            :class="{ active: pinned }"
-            :title="pinned ? '取消固定历史侧栏' : '固定历史侧栏'"
-            @click="$emit('toggle-pinned')"
-          >
-            固定
-          </el-button>
         </div>
       </div>
       <div class="snapshot-sidebar-actions">
@@ -83,7 +69,6 @@ import { formatSnapshotTime } from "../useCanvasSnapshots";
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
-  pinned: { type: Boolean, default: false },
   activeTitle: { type: String, default: "" },
   activeId: { type: String, default: "" },
   loading: { type: Boolean, default: false },
@@ -93,12 +78,7 @@ const props = defineProps({
 });
 
 defineEmits([
-  "peek-enter",
-  "peek-leave",
   "toggle",
-  "panel-enter",
-  "panel-leave",
-  "toggle-pinned",
   "create-fresh",
   "load",
   "restore",
