@@ -42,6 +42,8 @@
   let dragLatestClientY = 0;
   let dragRenderX = 0;
   let dragRenderY = 0;
+  let dragLayoutX = 0;
+  let dragLayoutY = 0;
   let dragGrabOffsetX = 0;
   let dragGrabOffsetY = 0;
   let panRafId = 0;
@@ -69,6 +71,19 @@
     return {
       x: clientX,
       y: clientY
+    };
+  }
+
+  function getSourceViewportRect(element) {
+    const rect = element?.getBoundingClientRect?.();
+    if (!rect) {
+      return null;
+    }
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
     };
   }
 
@@ -263,7 +278,6 @@
       return false;
     }
 
-    const pointerLayer = getPointerLayerPoint(event.clientX, event.clientY);
     const pointerViewport = getPointerViewportPoint(event.clientX, event.clientY);
 
     bringToFront(layout);
@@ -275,20 +289,25 @@
     dragMeta.startY = event.clientY;
     dragMeta.originX = layout.x;
     dragMeta.originY = layout.y;
-    dragGrabOffsetX = Math.max(0, pointerLayer.x - layout.x);
-    dragGrabOffsetY = Math.max(0, pointerLayer.y - layout.y);
+    const sourceRect = getSourceViewportRect(activeDragEl);
+    dragGrabOffsetX = sourceRect ? Math.max(0, event.clientX - sourceRect.left) : 0;
+    dragGrabOffsetY = sourceRect ? Math.max(0, event.clientY - sourceRect.top) : 0;
+    const ghostWidth = Math.round(sourceRect?.width || activeDragEl?.offsetWidth || 340);
+    const ghostHeight = Math.round(sourceRect?.height || activeDragEl?.offsetHeight || 230);
     dragMeta.width = activeDragEl?.offsetWidth || 340;
     dragMeta.height = activeDragEl?.offsetHeight || 230;
     dragLatestClientX = event.clientX;
     dragLatestClientY = event.clientY;
     dragRenderX = Math.round(pointerViewport.x - dragGrabOffsetX);
     dragRenderY = Math.round(pointerViewport.y - dragGrabOffsetY);
+    dragLayoutX = layout.x;
+    dragLayoutY = layout.y;
     dragGhost.active = true;
     dragGhost.title = stateMap[model]?.title || model;
     dragGhost.x = dragRenderX;
     dragGhost.y = dragRenderY;
-    dragGhost.width = dragMeta.width;
-    dragGhost.height = dragMeta.height;
+    dragGhost.width = ghostWidth;
+    dragGhost.height = ghostHeight;
     nextTick(() => {
       const ghostEl = dragGhostRef.value;
       if (ghostEl) {
@@ -514,16 +533,19 @@
     if (!dragRafId) {
       dragRafId = window.requestAnimationFrame(() => {
         dragRafId = 0;
+        const pointerLayer = getPointerLayerPoint(dragLatestClientX, dragLatestClientY);
         const pointerViewport = getPointerViewportPoint(dragLatestClientX, dragLatestClientY);
         dragRenderX = Math.round(pointerViewport.x - dragGrabOffsetX);
         dragRenderY = Math.round(pointerViewport.y - dragGrabOffsetY);
+        dragLayoutX = Math.round(pointerLayer.x - dragGrabOffsetX / getSafeCanvasScale());
+        dragLayoutY = Math.round(pointerLayer.y - dragGrabOffsetY / getSafeCanvasScale());
         dragGhost.x = dragRenderX;
         dragGhost.y = dragRenderY;
         const ghostEl = dragGhostRef.value;
         if (ghostEl) {
           ghostEl.style.transform = `translate3d(${Math.round(dragGhost.x)}px, ${Math.round(dragGhost.y)}px, 0)`;
         }
-        updateModuleActionMenuDuringDrag(dragState.model, dragRenderX, dragRenderY, dragMeta.width || 340);
+        updateModuleActionMenuDuringDrag(dragState.model, dragLayoutX, dragLayoutY, dragMeta.width || 340);
       });
     }
   }
@@ -539,8 +561,8 @@
     }
 
     if (dragState.model && nodeLayoutMap[dragState.model]) {
-      nodeLayoutMap[dragState.model].x = Math.round(dragRenderX);
-      nodeLayoutMap[dragState.model].y = Math.round(dragRenderY);
+      nodeLayoutMap[dragState.model].x = Math.round(dragLayoutX);
+      nodeLayoutMap[dragState.model].y = Math.round(dragLayoutY);
     }
 
     if (dragGhostRef.value) {
@@ -560,6 +582,8 @@
     dragLatestClientY = 0;
     dragRenderX = 0;
     dragRenderY = 0;
+    dragLayoutX = 0;
+    dragLayoutY = 0;
     dragGrabOffsetX = 0;
     dragGrabOffsetY = 0;
     dragGhost.x = 0;
