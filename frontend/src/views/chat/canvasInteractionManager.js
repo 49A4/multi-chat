@@ -273,19 +273,19 @@
     dragMeta.height = activeDragEl?.offsetHeight || 230;
     dragLatestClientX = event.clientX;
     dragLatestClientY = event.clientY;
-    dragRenderX = layout.x;
-    dragRenderY = layout.y;
+    dragRenderX = Math.round(pointerLayer.x - dragGrabOffsetX);
+    dragRenderY = Math.round(pointerLayer.y - dragGrabOffsetY);
     dragGhost.active = true;
     dragGhost.title = stateMap[model]?.title || model;
-    dragGhost.x = layout.x;
-    dragGhost.y = layout.y;
+    dragGhost.x = dragRenderX;
+    dragGhost.y = dragRenderY;
     dragGhost.width = dragMeta.width;
     dragGhost.height = dragMeta.height;
     nextTick(() => {
       const ghostEl = dragGhostRef.value;
       if (ghostEl) {
         ghostEl.style.willChange = "transform";
-        ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
+        ghostEl.style.transform = `translate3d(${Math.round(dragGhost.x)}px, ${Math.round(dragGhost.y)}px, 0)`;
       }
     });
     if (event.currentTarget?.setPointerCapture) {
@@ -509,9 +509,11 @@
         const pointerLayer = getPointerLayerPoint(dragLatestClientX, dragLatestClientY);
         dragRenderX = Math.round(pointerLayer.x - dragGrabOffsetX);
         dragRenderY = Math.round(pointerLayer.y - dragGrabOffsetY);
+        dragGhost.x = dragRenderX;
+        dragGhost.y = dragRenderY;
         const ghostEl = dragGhostRef.value;
         if (ghostEl) {
-          ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
+          ghostEl.style.transform = `translate3d(${Math.round(dragGhost.x)}px, ${Math.round(dragGhost.y)}px, 0)`;
         }
         updateModuleActionMenuDuringDrag(dragState.model, dragRenderX, dragRenderY, dragMeta.width || 340);
       });
