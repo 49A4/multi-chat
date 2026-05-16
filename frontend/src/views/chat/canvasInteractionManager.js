@@ -42,6 +42,8 @@
   let dragLatestClientY = 0;
   let dragRenderX = 0;
   let dragRenderY = 0;
+  let dragGrabOffsetX = 0;
+  let dragGrabOffsetY = 0;
   let panRafId = 0;
   let panLatestClientX = 0;
   let panLatestClientY = 0;
@@ -51,6 +53,16 @@
     pinchState.active = false;
     pinchState.startDistance = 0;
     pinchState.startScale = canvasScale.value;
+  }
+
+  function getPointerLayerPoint(clientX, clientY) {
+    const canvasEl = flowCanvasRef.value;
+    const canvasRect = canvasEl?.getBoundingClientRect?.();
+    const safeScale = getSafeCanvasScale();
+    return {
+      x: canvasRect ? (clientX - canvasRect.left - canvasOffset.x) / safeScale : clientX,
+      y: canvasRect ? (clientY - canvasRect.top - canvasOffset.y) / safeScale : clientY
+    };
   }
 
   function stopCanvasPanning() {
@@ -244,6 +256,8 @@
       return false;
     }
 
+    const pointerLayer = getPointerLayerPoint(event.clientX, event.clientY);
+
     bringToFront(layout);
     dragState.active = true;
     dragState.model = model;
@@ -253,6 +267,8 @@
     dragMeta.startY = event.clientY;
     dragMeta.originX = layout.x;
     dragMeta.originY = layout.y;
+    dragGrabOffsetX = Math.max(0, pointerLayer.x - layout.x);
+    dragGrabOffsetY = Math.max(0, pointerLayer.y - layout.y);
     dragMeta.width = activeDragEl?.offsetWidth || 340;
     dragMeta.height = activeDragEl?.offsetHeight || 230;
     dragLatestClientX = event.clientX;
@@ -490,9 +506,9 @@
     if (!dragRafId) {
       dragRafId = window.requestAnimationFrame(() => {
         dragRafId = 0;
-        const safeScale = getSafeCanvasScale();
-        dragRenderX = dragMeta.originX + (dragLatestClientX - dragMeta.startX) / safeScale;
-        dragRenderY = dragMeta.originY + (dragLatestClientY - dragMeta.startY) / safeScale;
+        const pointerLayer = getPointerLayerPoint(dragLatestClientX, dragLatestClientY);
+        dragRenderX = Math.round(pointerLayer.x - dragGrabOffsetX);
+        dragRenderY = Math.round(pointerLayer.y - dragGrabOffsetY);
         const ghostEl = dragGhostRef.value;
         if (ghostEl) {
           ghostEl.style.transform = `translate3d(${Math.round(dragRenderX)}px, ${Math.round(dragRenderY)}px, 0)`;
@@ -534,6 +550,8 @@
     dragLatestClientY = 0;
     dragRenderX = 0;
     dragRenderY = 0;
+    dragGrabOffsetX = 0;
+    dragGrabOffsetY = 0;
     dragGhost.x = 0;
     dragGhost.y = 0;
     activeDragEl = null;
