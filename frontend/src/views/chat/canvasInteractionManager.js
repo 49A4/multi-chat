@@ -65,6 +65,13 @@
     };
   }
 
+  function getPointerViewportPoint(clientX, clientY) {
+    return {
+      x: clientX,
+      y: clientY
+    };
+  }
+
   function stopCanvasPanning() {
     if (panRafId) {
       window.cancelAnimationFrame(panRafId);
@@ -257,6 +264,7 @@
     }
 
     const pointerLayer = getPointerLayerPoint(event.clientX, event.clientY);
+    const pointerViewport = getPointerViewportPoint(event.clientX, event.clientY);
 
     bringToFront(layout);
     dragState.active = true;
@@ -273,8 +281,8 @@
     dragMeta.height = activeDragEl?.offsetHeight || 230;
     dragLatestClientX = event.clientX;
     dragLatestClientY = event.clientY;
-    dragRenderX = Math.round(pointerLayer.x - dragGrabOffsetX);
-    dragRenderY = Math.round(pointerLayer.y - dragGrabOffsetY);
+    dragRenderX = Math.round(pointerViewport.x - dragGrabOffsetX);
+    dragRenderY = Math.round(pointerViewport.y - dragGrabOffsetY);
     dragGhost.active = true;
     dragGhost.title = stateMap[model]?.title || model;
     dragGhost.x = dragRenderX;
@@ -506,9 +514,9 @@
     if (!dragRafId) {
       dragRafId = window.requestAnimationFrame(() => {
         dragRafId = 0;
-        const pointerLayer = getPointerLayerPoint(dragLatestClientX, dragLatestClientY);
-        dragRenderX = Math.round(pointerLayer.x - dragGrabOffsetX);
-        dragRenderY = Math.round(pointerLayer.y - dragGrabOffsetY);
+        const pointerViewport = getPointerViewportPoint(dragLatestClientX, dragLatestClientY);
+        dragRenderX = Math.round(pointerViewport.x - dragGrabOffsetX);
+        dragRenderY = Math.round(pointerViewport.y - dragGrabOffsetY);
         dragGhost.x = dragRenderX;
         dragGhost.y = dragRenderY;
         const ghostEl = dragGhostRef.value;

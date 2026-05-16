@@ -96,15 +96,6 @@
           </el-card>
 
           <section
-            v-if="dragGhost.active"
-            :ref="setDragGhostRef"
-            class="drag-ghost"
-            :style="dragGhostStyle"
-          >
-            <div class="drag-ghost-title">{{ dragGhost.title }}</div>
-          </section>
-
-          <section
             v-if="showModuleActionMenu"
             :ref="setModuleActionMenuRef"
             class="module-action-menu"
@@ -189,6 +180,16 @@
       </div>
     </section>
   </section>
+  <teleport to="body">
+    <section
+      v-if="dragGhost.active"
+      :ref="setDragGhostRef"
+      class="drag-ghost"
+      :style="dragGhostStyle"
+    >
+      <div class="drag-ghost-title">{{ dragGhost.title }}</div>
+    </section>
+  </teleport>
 </template>
 
 <script setup>
